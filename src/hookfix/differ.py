@@ -32,12 +32,13 @@ def _stdlib_names() -> set[str]:
 def diff(trace: TraceResult, static: StaticResult) -> DiffResult:
     """Return the runtime imports that the static scan did not find.
 
-    ``missing`` is the actionable set: third-party top-level modules that the
-    program imported but a source scan cannot see. ``stdlib_only`` is kept
-    separate because a freezer bundles the standard library regardless.
+    ``missing`` holds fully-qualified module names, because that is what a
+    freezer needs: ``--hidden-import=reporters.json_reporter``, not the bare
+    package name. ``stdlib_only`` is kept separate because a freezer bundles
+    the standard library regardless.
     """
     static_names = set(static.imports)
-    runtime_names = {name for name in trace.top_level if not _is_noise(name)}
+    runtime_names = {name for name in trace.modules if not _is_noise(name)}
     stdlib = _stdlib_names()
 
     missing: set[str] = set()
@@ -47,10 +48,16 @@ def diff(trace: TraceResult, static: StaticResult) -> DiffResult:
     for name in runtime_names:
         if name in static_names:
             common.add(name)
-        elif name in stdlib:
+        elif name.split(".")[0] in stdlib:
             stdlib_only.add(name)
         else:
             missing.add(name)
+
+    # A package whose own submodule is reported is redundant: importing the
+    # submodule pulls the package in, and listing both clutters the config.
+    missing = {name for name in missing if not any(
+        other != name and other.startswith(name + ".") for other in missing
+    )}
 
     return DiffResult(
         missing=sorted(missing),

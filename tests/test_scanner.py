@@ -51,3 +51,12 @@ def test_scan_finds_imports_nested_in_functions(tmp_path):
     )
     result = scan(tmp_path)
     assert "json" in result.imports
+
+
+def test_scan_keeps_fully_qualified_names(tmp_path):
+    # PyInstaller needs the exact module path, so ``import a.b`` and
+    # ``from a import c`` must not be flattened to ``a``.
+    (tmp_path / "mod.py").write_text("import xml.etree\nfrom a import c\n")
+    result = scan(tmp_path)
+    assert "xml.etree" in result.imports
+    assert "a.c" in result.imports

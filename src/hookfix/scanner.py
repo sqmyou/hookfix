@@ -88,12 +88,17 @@ def _scan_tree(tree: ast.AST, relpath: str) -> tuple[set[str], list[DynamicSite]
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                imports.add(alias.name.split(".")[0])
+                # Keep the fully-qualified name: ``import a.b`` tells a freezer
+                # about ``a.b``, and the differ compares full names.
+                imports.add(alias.name)
         elif isinstance(node, ast.ImportFrom):
             # ``from . import x`` has module=None and level>0; that is a
             # relative import and never a missing third-party dependency.
             if node.level == 0 and node.module:
-                imports.add(node.module.split(".")[0])
+                imports.add(node.module)
+                for alias in node.names:
+                    if alias.name != "*":
+                        imports.add(f"{node.module}.{alias.name}")
         elif isinstance(node, ast.Call):
             parts = _call_name(node)
             if not parts:

@@ -10,8 +10,17 @@ def test_diff_reports_runtime_only_module():
     trace = TraceResult(modules=["plugins", "plugins.report", "csv"])
     static = StaticResult(imports=["csv"], files=["app.py"])
     result = diff(trace, static)
-    assert result.missing == ["plugins"]
+    # The fully-qualified submodule is reported; the bare parent package is
+    # suppressed because importing the submodule pulls it in.
+    assert result.missing == ["plugins.report"]
     assert "csv" in result.common
+
+
+def test_diff_reports_bare_package_when_no_submodule():
+    trace = TraceResult(modules=["plugins"])
+    static = StaticResult(imports=[], files=[])
+    result = diff(trace, static)
+    assert result.missing == ["plugins"]
 
 
 def test_diff_separates_stdlib_from_third_party():
