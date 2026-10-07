@@ -5,11 +5,12 @@ source code. Imports that are constructed at runtime are invisible to that
 analysis, so the resulting executable crashes with ``ModuleNotFoundError`` on
 the user's machine and not on yours.
 
-hookfix runs your program once under a CPython audit hook, records every module
-the interpreter actually imports, and compares that against the static import
-graph. The difference is exactly the set of modules your build is missing.
+hookfix runs your program once under a meta path import tracer, records every
+module the interpreter actually imports, and compares that against the imports
+a freezer can reach from your entry point. The difference is exactly the set of
+modules your build is missing.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = ["__version__"]

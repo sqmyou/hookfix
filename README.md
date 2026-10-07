@@ -161,12 +161,16 @@ freezer might drop. It is specifically about imports.
    `runpy`, mimicking a plain `python script.py` invocation. Every resolved
    module is logged as `name<TAB>origin`.
 
-2. **Scan.** `hookfix` walks the source tree with `ast` and collects every
-   `import` statement, plus the location of every dynamic import call site.
+2. **Scan.** `hookfix` walks the source tree with `ast`, collects every
+   `import` statement, and records the location of every dynamic import call
+   site. From the entry point it then walks the import graph to work out which
+   modules a freezer will actually bundle. The two sets differ: a file that
+   nothing imports is still scanned but is never bundled, so comparing against
+   every import in the tree would hide real gaps.
 
-3. **Diff.** The runtime modules minus the statically visible ones are the
-   hidden imports. Standard-library modules are split out (a freezer bundles
-   those anyway) and import-machinery internals are filtered as noise.
+3. **Diff.** The runtime modules minus the reachable ones are the hidden
+   imports. Standard-library modules are split out (a freezer bundles those
+   anyway) and import-machinery internals are filtered as noise.
 
 4. **Report.** The remainder is printed, or rendered as a hook file or spec
    snippet.

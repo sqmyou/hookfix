@@ -29,8 +29,9 @@ Linux (3.10-3.13) plus macOS and Windows (3.12).
 - `src/hookfix/_bootstrap.py` — runs the target script in a child process.
   Deliberately imports nothing from the rest of hookfix, so its own
   dependencies are not mistaken for the user's.
-- `src/hookfix/scanner.py` — `ast`-based static scan.
-- `src/hookfix/differ.py` — runtime trace minus static imports.
+- `src/hookfix/scanner.py` — `ast`-based static scan; also computes the set of
+  modules reachable from the entry point.
+- `src/hookfix/differ.py` — runtime trace minus the reachable imports.
 - `src/hookfix/spec_writer.py` — hook file / spec snippet rendering.
 - `tests/fixtures/dynamic_app/` — fixture that loads a plugin through
   `importlib.import_module`.
@@ -57,6 +58,14 @@ Linux (3.10-3.13) plus macOS and Windows (3.12).
 4. **The tool reports one execution.** An unexercised code path stays
    invisible. That is the contract, documented in `README.md` and shown in
    `DEMO.md`. Do not paper over it with guesswork.
+
+5. **Subtract the *reachable* set, never the whole tree.** `StaticResult` carries
+   two sets and they are not interchangeable. `imports` is everything the
+   scanner read anywhere; `reachable` is what a freezer can actually reach from
+   the entry point. Comparing a trace against `imports` treats a module inside a
+   dynamically loaded package as already covered, which is exactly the bug
+   fixed in 0.1.1 — hookfix's own advice produced a binary that crashed. `diff`
+   raises rather than fall back to `imports`.
 
 ## Releasing
 
