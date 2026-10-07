@@ -27,8 +27,13 @@ from .errors import HookfixError
 from .model import StaticResult, TraceResult
 from .report import format_report
 from .scanner import scan
-from .spec_writer import hook_targets, render_hook_file, render_spec_patch
-from .tracer import parse_audit_log
+from .spec_writer import (
+    hook_targets,
+    render_hook_file,
+    render_nuitka_options,
+    render_spec_patch,
+)
+from .tracer import parse_audit_log, parse_spawn_sites
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -149,10 +154,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "hidden import)"
         ),
     )
-    fix.add_argument(
+    fix_output = fix.add_mutually_exclusive_group()
+    fix_output.add_argument(
         "--spec",
         action="store_true",
         help="emit a spec-file snippet instead of a hook file",
+    )
+    fix_output.add_argument(
+        "--nuitka",
+        action="store_true",
+        help="emit Nuitka --include-module flags instead of a hook file",
     )
     fix.add_argument(
         "-o",
@@ -191,6 +202,7 @@ def _trace_script(script: Path, script_args: Sequence[str], quiet: bool) -> Trac
         origins=origins,
         returncode=completed.returncode,
         entry=str(script),
+        spawn_sites=parse_spawn_sites(log_text),
     )
 
 
@@ -282,6 +294,15 @@ def _cmd_fix(args: argparse.Namespace) -> int:
 
     if args.spec:
         rendered = render_spec_patch(result.missing)
+        if args.output:
+            Path(args.output).write_text(rendered, encoding="utf-8")
+            print(f"wrote {args.output} ({len(result.missing)} hidden imports)")
+        else:
+            print(rendered, end="")
+        return 0
+
+    if args.nuitka:
+        rendered = render_nuitka_options(result.missing)
         if args.output:
             Path(args.output).write_text(rendered, encoding="utf-8")
             print(f"wrote {args.output} ({len(result.missing)} hidden imports)")

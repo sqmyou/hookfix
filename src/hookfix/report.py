@@ -147,10 +147,29 @@ def format_report(
         )
 
     child_modules = sorted(_CHILD_PROCESS_MODULES.intersection(trace.modules))
-    if child_modules:
+    if trace.spawn_sites:
         lines.append("")
-        lines.append("Child processes were used")
-        lines.append("-" * 24)
+        lines.append("Child processes were started")
+        lines.append("-" * 28)
+        for spawn in trace.spawn_sites[:20]:
+            if spawn.path and spawn.lineno:
+                lines.append(f"  {spawn.path}:{spawn.lineno}  {spawn.event}")
+            else:
+                lines.append(f"  {spawn.event}")
+        if len(trace.spawn_sites) > 20:
+            lines.append(f"  ... and {len(trace.spawn_sites) - 20} more")
+        lines.append("")
+        lines.append(
+            "The program started another process, which runs in its own "
+            "interpreter. The tracer only sees this process: any module a child "
+            "Python process imported is NOT in this report. If a child does "
+            "dynamic imports, trace it directly too -- run hookfix on the child "
+            "entry point named above."
+        )
+    elif child_modules:
+        lines.append("")
+        lines.append("Child processes may have been used")
+        lines.append("-" * 32)
         lines.append(f"  imported: {', '.join(child_modules)}")
         lines.append("")
         lines.append(

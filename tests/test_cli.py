@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from hookfix.cli import main
 
 from .conftest import (
@@ -115,6 +117,45 @@ def test_fix_emits_hook_file(capsys, tmp_path):
     # The hook is keyed to the package PyInstaller processes, not the entry
     # script -- a hook named after the script is never read.
     assert "# hook-dynpkg.py" in out
+
+
+def test_fix_nuitka_emits_include_module_flags(capsys, tmp_path):
+    trace_file = tmp_path / "trace.json"
+    main(
+        [
+            "run",
+            str(HOOKED_APP_ENTRY),
+            "--path",
+            str(HOOKED_APP),
+            "--quiet",
+            "--trace-out",
+            str(trace_file),
+        ]
+    )
+    capsys.readouterr()
+    code = main(["fix", str(trace_file), "--path", str(HOOKED_APP), "--nuitka"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "--include-module=dynpkg.helper" in out
+    assert "hook-dynpkg.py" not in out
+
+
+def test_fix_spec_and_nuitka_are_mutually_exclusive(capsys, tmp_path):
+    trace_file = tmp_path / "trace.json"
+    main(
+        [
+            "run",
+            str(HOOKED_APP_ENTRY),
+            "--path",
+            str(HOOKED_APP),
+            "--quiet",
+            "--trace-out",
+            str(trace_file),
+        ]
+    )
+    capsys.readouterr()
+    with pytest.raises(SystemExit):
+        main(["fix", str(trace_file), "--path", str(HOOKED_APP), "--spec", "--nuitka"])
 
 
 def test_fix_refuses_hook_named_after_the_entry_script(capsys, tmp_path):
@@ -342,12 +383,12 @@ def test_fix_entry_override_makes_a_moved_trace_work(tmp_path, capsys):
     assert "alpha.one" in out and "beta.two" in out
 
 
-def test_run_warns_when_child_processes_may_have_run(capsys, tmp_path):
-    """A run that imports subprocess must say child imports are not traced.
+def test_run_names_the_line_that_started_a_child(capsys, tmp_path):
+    """A run that starts a child process must say so, and point at the line.
 
-    The tracer only sees its own interpreter. Without this notice a program that
-    shells out to another Python script reports a clean result and the reader
-    has no way to know part of the program was never observed.
+    The tracer only sees its own interpreter. An audit hook observes the spawn
+    itself, so the report can name the exact user-code line rather than merely
+    guessing from an imported ``subprocess``.
     """
     child = tmp_path / "child.py"
     child.write_text("print('hi')\n")
@@ -359,7 +400,23 @@ def test_run_warns_when_child_processes_may_have_run(capsys, tmp_path):
     code = main(["run", str(app), "--path", str(tmp_path)])
     out = capsys.readouterr().out
     assert code == 0
-    assert "Child processes were used" in out
+    assert "Child processes were started" in out
+    assert f"{app}:2" in out
+
+
+def test_run_falls_back_to_the_module_notice_when_no_spawn_is_observed(tmp_path):
+    """Importing subprocess without spawning still warns, but weakly.
+
+    The static scan cannot tell the two cases apart, and the audit hook only
+    fires on an actual spawn, so a program that imports ``subprocess`` and never
+    uses it keeps the older, advisory wording.
+    """
+    app = tmp_path / "app.py"
+    app.write_text("import subprocess  # imported but never used\n")
+    from hookfix.cli import _trace_script
+
+    trace = _trace_script(app, [], quiet=True)
+    assert trace.spawn_sites == []
 
 
 def test_diff_from_saved_trace(capsys, tmp_path):

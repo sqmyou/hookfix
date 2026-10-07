@@ -6,9 +6,12 @@ Repository notes for AI agents and contributors working on hookfix.
 
 `hookfix` finds the imports that break frozen Python apps. It runs a program
 under a runtime import tracer, subtracts the imports a static scan can see, and
-emits PyInstaller configuration for the difference. The reported list is
-freezer-agnostic; only `fix`'s output format is PyInstaller-specific (hook files
-and `.spec` snippets). There is no Nuitka config writer.
+emits freezer configuration for the difference. The reported list is always
+freezer-agnostic; only `fix`'s output format is freezer-specific. `fix` writes
+PyInstaller hook files or `.spec` snippets by default, and Nuitka
+`--include-module` flags with `--nuitka`. A Nuitka flag is unconditional, so,
+unlike a PyInstaller hook, it needs no "the freezer must already process this
+module" rule.
 
 ## Commands
 
@@ -34,7 +37,8 @@ Linux (3.10-3.13) plus macOS and Windows (3.12).
 - `src/hookfix/scanner.py` — `ast`-based static scan; also computes the set of
   modules reachable from the entry point.
 - `src/hookfix/differ.py` — runtime trace minus the reachable imports.
-- `src/hookfix/spec_writer.py` — hook file / spec snippet rendering.
+- `src/hookfix/spec_writer.py` — freezer output rendering: PyInstaller hook
+  files and `.spec` snippets, and Nuitka `--include-module` flags.
 - `tests/fixtures/dynamic_app/` — fixture that loads a plugin through
   `importlib.import_module`.
 - `examples/demo_app/` — the app used in `DEMO.md`.
@@ -46,6 +50,13 @@ Linux (3.10-3.13) plus macOS and Windows (3.12).
    `import` audit event, so audit hooks miss the exact dynamic case this tool
    exists to catch. Verified on Python 3.13. A `sys.meta_path` finder sees
    every path. `README.md` explains this with a runnable example.
+
+   Audit hooks *are* still the right tool for one thing: process-spawn sites.
+   There is no meta path equivalent for "the program started another process",
+   because the child is a separate interpreter. The `subprocess.Popen` /
+   `os.*spawn` / `os.fork` audit events fire from the C entry points whatever the
+   caller did, so the bootstrap adds an audit hook for those alone and records the
+   user-code call site. Do not extend that hook to imports.
 
 2. **Report fully-qualified module names.** PyInstaller needs
    `--hidden-import=reporters.json_reporter`; the bare package name does not

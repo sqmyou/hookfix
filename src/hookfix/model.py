@@ -47,6 +47,30 @@ class DynamicSite:
 
 
 @dataclass
+class SpawnSite:
+    """A call site that started another process during the traced run.
+
+    The child interpreter is a separate process, so its imports never pass
+    through this tracer. Recording where the child was started is what lets the
+    report point at the line a reader should trace separately, instead of
+    implying the child's imports are covered.
+    """
+
+    event: str
+    #: Source file of the user-code frame that spawned the child, if found.
+    path: str | None = None
+    #: Line in that file.
+    lineno: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SpawnSite:
+        return cls(**data)
+
+
+@dataclass
 class StaticResult:
     """What a static scan of the source tree can see."""
 
@@ -102,6 +126,9 @@ class TraceResult:
     #: which modules the freezer can reach; a trace without it (schema 1) is
     #: rejected by ``diff``.
     entry: str | None = None
+    #: Places the program started another process, where the child's imports
+    #: went unobserved.
+    spawn_sites: list[SpawnSite] = field(default_factory=list)
 
     @property
     def top_level(self) -> list[str]:
@@ -116,6 +143,7 @@ class TraceResult:
             "entry": self.entry,
             "modules": self.modules,
             "origins": self.origins,
+            "spawn_sites": [site.to_dict() for site in self.spawn_sites],
         }
 
     @classmethod
@@ -126,6 +154,7 @@ class TraceResult:
             python=data.get("python", ""),
             returncode=int(data.get("returncode", 0)),
             entry=data.get("entry"),
+            spawn_sites=[SpawnSite.from_dict(d) for d in data.get("spawn_sites", [])],
         )
 
 

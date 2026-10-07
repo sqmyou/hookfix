@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-10-07
+
+### Added
+
+- **`hookfix fix --nuitka` writes Nuitka build flags.** The report was always
+  freezer-agnostic but only PyInstaller configuration could be generated, so a
+  Nuitka user had to translate the list by hand. `--nuitka` prints one
+  `--include-module=NAME` per hidden import. Unlike a PyInstaller hook, the flag
+  is unconditional, so it covers a module nothing imports just as reliably as
+  one that is, and the whole list is always emitted. `--nuitka` and `--spec`
+  are mutually exclusive.
+- **The report names the line that started a child process.** A child
+  interpreter runs in its own process, so its imports never reach the tracer and
+  the report could previously only *guess* from an imported `subprocess`. An
+  audit hook now observes the spawn itself and records the user-code call site,
+  so the report says `app.py:12  subprocess.Popen` and points the reader at the
+  child entry point to trace directly. The older module-based notice remains for
+  a program that imports `subprocess` without spawning.
+
 ## [0.1.2] - 2026-10-07
 
 ### Fixed

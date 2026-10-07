@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hookfix.tracer import parse_audit_log, traced_run
+from hookfix.tracer import parse_audit_log, parse_spawn_sites, traced_run
 
 
 def test_parse_audit_log_reads_names_and_origins():
@@ -18,6 +18,50 @@ def test_parse_audit_log_ignores_blank_lines():
     modules, origins = parse_audit_log("\n\ncsv\n\n")
     assert modules == {"csv"}
     assert origins == {}
+
+
+def test_parse_audit_log_ignores_spawn_records():
+    # A log mixes import lines and ``@spawn`` records; the import parser must
+    # not mistake a record's payload for a module name.
+    text = "csv\t/usr/lib/csv.py\n@spawn\tsubprocess.Popen\t/app/app.py\t12\n"
+    modules, origins = parse_audit_log(text)
+    assert modules == {"csv"}
+
+
+def test_parse_spawn_sites_reads_path_and_line():
+    text = "@spawn\tsubprocess.Popen\t/app/app.py\t12\n"
+    sites = parse_spawn_sites(text)
+    assert len(sites) == 1
+    assert sites[0].event == "subprocess.Popen"
+    assert sites[0].path == "/app/app.py"
+    assert sites[0].lineno == 12
+
+
+def test_parse_spawn_sites_collapses_one_line():
+    # subprocess.run raises several audit events from the same source line.
+    text = (
+        "@spawn\tsubprocess.Popen\t/app/app.py\t12\n"
+        "@spawn\tos.posix_spawn\t/app/app.py\t12\n"
+    )
+    sites = parse_spawn_sites(text)
+    assert len(sites) == 1
+
+
+def test_parse_spawn_sites_keeps_two_distinct_lines():
+    text = (
+        "@spawn\tsubprocess.Popen\t/app/app.py\t12\n"
+        "@spawn\tsubprocess.Popen\t/app/app.py\t20\n"
+    )
+    sites = parse_spawn_sites(text)
+    assert [s.lineno for s in sites] == [12, 20]
+
+
+def test_parse_spawn_sites_tolerates_a_missing_line():
+    text = "@spawn\tos.system\t\t\n"
+    sites = parse_spawn_sites(text)
+    assert sites[0].event == "os.system"
+    assert sites[0].path is None
+    assert sites[0].lineno is None
 
 
 def test_traced_run_captures_dynamic_import(tmp_path):

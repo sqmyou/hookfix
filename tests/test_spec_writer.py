@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from hookfix.spec_writer import hook_targets, render_hook_file, render_spec_patch
+from hookfix.spec_writer import (
+    hook_targets,
+    render_hook_file,
+    render_nuitka_options,
+    render_spec_patch,
+)
 
 
 def test_hook_targets_uses_top_level_package():
@@ -40,3 +45,17 @@ def test_render_spec_patch_is_valid_python():
     namespace: dict = {}
     exec(compile(text, "<spec>", "exec"), namespace)  # noqa: S102
     assert namespace["hiddenimports"] == ["numpy"]
+
+
+def test_render_nuitka_options_lists_one_flag_per_module():
+    text = render_nuitka_options(["plugins.report", "yaml"])
+    assert "--include-module=plugins.report" in text
+    assert "--include-module=yaml" in text
+    # No PyInstaller hook syntax leaks into the Nuitka form.
+    assert "hiddenimports" not in text
+
+
+def test_render_nuitka_options_handles_empty_list():
+    text = render_nuitka_options([])
+    assert "--include-module=" not in text
+    assert "(no hidden imports)" in text

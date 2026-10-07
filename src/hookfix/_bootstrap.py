@@ -21,6 +21,61 @@ import runpy
 import sys
 from typing import Any
 
+#: Audit events raised when the interpreter starts another process. They cover
+#: ``subprocess`` (which raises ``subprocess.Popen`` and, under the hood,
+#: ``os.posix_spawn`` / ``os.fork``), the ``os.system`` / ``os.exec*`` family and
+#: ``multiprocessing`` (which goes through ``os.fork`` on POSIX). Unlike the
+#: ``import`` event there is no ``importlib`` blind spot here: these fire from
+#: the C entry points whatever the caller did.
+_SPAWN_EVENTS = frozenset(
+    {
+        "subprocess.Popen",
+        "os.system",
+        "os.exec",
+        "os.posix_spawn",
+        "os.spawn",
+        "os.fork",
+        "os.forkpty",
+    }
+)
+
+
+class _SpawnRecorder:
+    """Audit hook that logs the source line that started another process.
+
+    A child interpreter is invisible to the meta path finder -- it is a separate
+    process with its own ``sys.meta_path``. The best hookfix can do without
+    running the child itself is to point at the call site, so the reader knows
+    exactly which line to trace directly. The call site is found by walking the
+    stack past the frames that belong to hookfix and the standard library.
+    """
+
+    def __init__(self, log: Any, stdlib_dir: str, bootstrap_file: str) -> None:
+        self._log = log
+        self._stdlib_dir = stdlib_dir
+        self._bootstrap_file = bootstrap_file
+
+    def __call__(self, event: str, args: tuple[Any, ...]) -> None:
+        if event not in _SPAWN_EVENTS:
+            return
+        site = self._user_frame()
+        location = f"{site[0]}\t{site[1]}" if site else "\t"
+        self._log.write(f"@spawn\t{event}\t{location}\n")
+
+    def _user_frame(self) -> tuple[str, int] | None:
+        frame: Any = sys._getframe(1)
+        while frame is not None:
+            filename = frame.f_code.co_filename
+            if (
+                filename
+                and not filename.startswith("<")
+                and filename != self._bootstrap_file
+                and not filename.startswith(self._stdlib_dir)
+            ):
+                return filename, frame.f_lineno
+            frame = frame.f_back
+        return None
+
 
 class _Recorder:
     """Minimal meta path finder that logs every resolved module."""
@@ -107,10 +162,12 @@ def _main() -> None:  # pragma: no cover - exercised via subprocess in tests
     # Present the script the way a normal ``python script.py`` invocation does.
     sys.argv = [script, *sys.argv[3:]]
 
+    stdlib_dir = os.path.dirname(os.__file__)
     with open(logfile, "w", encoding="utf-8", buffering=1) as log:
-        # Install the recorder last, so nothing hookfix itself imported is
+        # Install the recorders last, so nothing hookfix itself imported is
         # logged as if the user's program had imported it.
         sys.meta_path.insert(0, _Recorder(log))
+        sys.addaudithook(_SpawnRecorder(log, stdlib_dir, os.path.abspath(__file__)))
         if package is not None:
             runpy.run_module(package, run_name="__main__", alter_sys=True)
         else:

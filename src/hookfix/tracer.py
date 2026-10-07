@@ -26,6 +26,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .errors import TraceError
+from .model import SpawnSite
 
 
 class ImportTracer:
@@ -106,14 +107,15 @@ def traced_run(target: Callable[..., int], *args: Any, **kwargs: Any) -> tuple[I
 def parse_audit_log(text: str) -> tuple[set[str], dict[str, str]]:
     """Parse the line-oriented log written by the subprocess bootstrap.
 
-    Each line is ``module<TAB>origin`` with an empty origin when the import
-    machinery did not report a file. This keeps the child process free of any
-    dependency on the rest of hookfix.
+    Each import line is ``module<TAB>origin`` with an empty origin when the
+    import machinery did not report a file. Lines beginning with ``@`` are
+    records of another kind (see :func:`parse_spawn_sites`) and are skipped here.
+    This keeps the child process free of any dependency on the rest of hookfix.
     """
     modules: set[str] = set()
     origins: dict[str, str] = {}
     for line in text.splitlines():
-        if not line.strip():
+        if not line.strip() or line.startswith("@"):
             continue
         name, _, origin = line.partition("\t")
         name = name.strip()
@@ -123,3 +125,34 @@ def parse_audit_log(text: str) -> tuple[set[str], dict[str, str]]:
         if origin and name not in origins:
             origins[name] = origin
     return modules, origins
+
+
+def parse_spawn_sites(text: str) -> list[SpawnSite]:
+    """Parse the ``@spawn`` records out of a bootstrap log.
+
+    The format is ``@spawn<TAB>event<TAB>path<TAB>lineno``, where the path and
+    line name the user-code frame that started the child, or are empty when no
+    such frame was found. Records are collapsed to one per source line: a single
+    ``subprocess.run`` raises ``subprocess.Popen`` and then ``os.posix_spawn``
+    (or ``os.fork``) from the same line, and the reader needs that line once.
+    """
+    seen: set[tuple[str | None, int | None]] = set()
+    sites: list[SpawnSite] = []
+    for line in text.splitlines():
+        if not line.startswith("@spawn\t"):
+            continue
+        parts = line.split("\t")
+        event = parts[1] if len(parts) > 1 and parts[1] else "(unknown)"
+        path = parts[2] if len(parts) > 2 and parts[2] else None
+        lineno: int | None = None
+        if len(parts) > 3 and parts[3]:
+            try:
+                lineno = int(parts[3])
+            except ValueError:
+                lineno = None
+        key = (path, lineno)
+        if key in seen:
+            continue
+        seen.add(key)
+        sites.append(SpawnSite(event=event, path=path, lineno=lineno))
+    return sites

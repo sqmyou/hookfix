@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hookfix"
-version = "0.1.2"
+version = "0.2.0"
 description = "Find the hidden imports that break your frozen Python app."
 readme = "README.md"
 requires-python = ">=3.10"
