@@ -38,7 +38,7 @@ def test_run_json_output(capsys):
     )
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
-    assert "plugins" in payload["missing"]
+    assert "plugins.report" in payload["missing"]
 
 
 def test_run_writes_trace(capsys, tmp_path):
@@ -91,11 +91,11 @@ def test_fix_emits_hook_file(capsys, tmp_path):
         ]
     )
     capsys.readouterr()
-    code = main(["fix", str(trace_file), str(DYNAMIC_APP), "--module", "app"])
+    code = main(["fix", str(trace_file), "--path", str(DYNAMIC_APP), "--module", "app"])
     out = capsys.readouterr().out
     assert code == 0
     assert "hiddenimports = [" in out
-    assert "'plugins'," in out
+    assert "'plugins.report'," in out
 
 
 def test_fix_writes_to_file(capsys, tmp_path):
@@ -114,10 +114,10 @@ def test_fix_writes_to_file(capsys, tmp_path):
     capsys.readouterr()
     output = tmp_path / "hook-app.py"
     code = main(
-        ["fix", str(trace_file), str(DYNAMIC_APP), "-o", str(output), "--module", "app"]
+        ["fix", str(trace_file), "--path", str(DYNAMIC_APP), "-o", str(output), "--module", "app"]
     )
     assert code == 0
-    assert "'plugins'," in output.read_text()
+    assert "'plugins.report'," in output.read_text()
 
 
 def test_diff_from_saved_trace(capsys, tmp_path):
@@ -134,10 +134,10 @@ def test_diff_from_saved_trace(capsys, tmp_path):
         ]
     )
     capsys.readouterr()
-    code = main(["diff", str(trace_file), str(DYNAMIC_APP), "--json"])
+    code = main(["diff", str(trace_file), "--path", str(DYNAMIC_APP), "--json"])
     payload = json.loads(capsys.readouterr().out)
     assert code == 0
-    assert "plugins" in payload["missing"]
+    assert "plugins.report" in payload["missing"]
 
 
 def test_missing_script_reports_error(capsys):

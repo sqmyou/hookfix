@@ -84,7 +84,12 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Read a trace written by 'hookfix run --trace-out' and diff it.",
     )
     diff_cmd.add_argument("trace", help="path to a trace JSON file")
-    diff_cmd.add_argument("path", help="directory to scan statically")
+    diff_cmd.add_argument(
+        "--path",
+        default=None,
+        metavar="DIR",
+        help="directory to scan statically (default: the trace's directory)",
+    )
     diff_cmd.add_argument(
         "--exclude",
         action="append",
@@ -101,10 +106,17 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     fix.add_argument("trace", help="path to a trace JSON file")
     fix.add_argument(
-        "path",
-        nargs="?",
+        "--path",
         default=None,
+        metavar="DIR",
         help="directory to scan statically (default: the trace's directory)",
+    )
+    fix.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="DIR",
+        help="additional directory name to skip while scanning (repeatable)",
     )
     fix.add_argument(
         "--module",
@@ -192,7 +204,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 def _cmd_diff(args: argparse.Namespace) -> int:
     trace = _load_trace(args.trace)
-    static = scan(args.path, excludes=args.exclude)
+    scan_root = args.path or str(Path(args.trace).resolve().parent)
+    static = scan(scan_root, excludes=args.exclude)
     result = diff(trace, static)
 
     if args.json:
@@ -212,7 +225,7 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 def _cmd_fix(args: argparse.Namespace) -> int:
     trace = _load_trace(args.trace)
     scan_root = args.path or str(Path(args.trace).resolve().parent)
-    static = scan(scan_root)
+    static = scan(scan_root, excludes=args.exclude)
     result = diff(trace, static)
 
     if args.spec:
