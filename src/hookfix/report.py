@@ -4,6 +4,13 @@ from __future__ import annotations
 
 from .model import DiffResult, StaticResult, TraceResult
 
+#: Modules whose presence means the program may have run code in a child
+#: process. The tracer only sees its own interpreter, so imports made by a
+#: spawned Python child are invisible -- and the report would otherwise look
+#: clean. Advisory, not conclusive: importing ``subprocess`` does not prove a
+#: child ran.
+_CHILD_PROCESS_MODULES = frozenset({"subprocess", "multiprocessing"})
+
 
 def _plural(count: int, singular: str, plural: str | None = None) -> str:
     word = singular if count == 1 else (plural or singular + "s")
@@ -137,6 +144,20 @@ def format_report(
         lines.append(
             "These call sites are why the imports above are invisible to "
             "static analysis."
+        )
+
+    child_modules = sorted(_CHILD_PROCESS_MODULES.intersection(trace.modules))
+    if child_modules:
+        lines.append("")
+        lines.append("Child processes were used")
+        lines.append("-" * 24)
+        lines.append(f"  imported: {', '.join(child_modules)}")
+        lines.append("")
+        lines.append(
+            "This run imported a child-process module, so the program may have "
+            "executed code in a separate interpreter. The tracer only sees this "
+            "process: any module a child Python process imported is NOT in this "
+            "report. If a child does dynamic imports, trace it directly too."
         )
 
     lines.append("")

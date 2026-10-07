@@ -8,7 +8,8 @@ the user's machine and not on yours.
 hookfix runs your program once under a meta path import tracer, records every
 module the interpreter actually imports, and compares that against the imports
 a freezer can reach from your entry point. The difference is exactly the set of
-modules your build is missing.
+modules your build is missing. That report is freezer-agnostic; ``hookfix fix``
+renders it as PyInstaller hook files or ``.spec`` snippets.
 """
 
 __version__ = "0.1.2"

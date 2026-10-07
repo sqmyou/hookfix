@@ -6,13 +6,15 @@ Repository notes for AI agents and contributors working on hookfix.
 
 `hookfix` finds the imports that break frozen Python apps. It runs a program
 under a runtime import tracer, subtracts the imports a static scan can see, and
-emits PyInstaller/Nuitka configuration for the difference.
+emits PyInstaller configuration for the difference. The reported list is
+freezer-agnostic; only `fix`'s output format is PyInstaller-specific (hook files
+and `.spec` snippets). There is no Nuitka config writer.
 
 ## Commands
 
 ```console
 python -m pip install -e ".[dev]"     # install with test/lint tools
-python -m pytest                      # test suite (28 tests)
+python -m pytest                      # test suite
 python -m ruff check src tests        # lint
 python -m mypy                        # strict type check (src/hookfix only)
 ```

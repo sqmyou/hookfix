@@ -97,6 +97,16 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="DIR",
         help="additional directory name to skip while scanning (repeatable)",
     )
+    diff_cmd.add_argument(
+        "--entry",
+        default=None,
+        metavar="FILE",
+        help=(
+            "override the entry-point path recorded in the trace. A trace is "
+            "portable, but the path in it is from the machine that took it; use "
+            "this when the checkout lives somewhere else here"
+        ),
+    )
     diff_cmd.add_argument("--json", action="store_true", help="print the diff as JSON")
 
     fix = subparsers.add_parser(
@@ -117,6 +127,16 @@ def _build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="DIR",
         help="additional directory name to skip while scanning (repeatable)",
+    )
+    fix.add_argument(
+        "--entry",
+        default=None,
+        metavar="FILE",
+        help=(
+            "override the entry-point path recorded in the trace. A trace is "
+            "portable, but the path in it is from the machine that took it; use "
+            "this when the checkout lives somewhere else here"
+        ),
     )
     fix.add_argument(
         "--module",
@@ -225,8 +245,15 @@ def _scan_for_trace(trace: TraceResult, args: argparse.Namespace) -> StaticResul
             f"{args.trace} has no entry point recorded (it predates schema 2); "
             "re-run 'hookfix run --trace-out' to regenerate it"
         )
-    scan_root = args.path or str(Path(trace.entry).resolve().parent)
-    return scan(scan_root, excludes=args.exclude, entry=trace.entry)
+    entry = args.entry or trace.entry
+    if not Path(entry).exists():
+        raise HookfixError(
+            f"entry point does not exist: {entry}. The trace records the entry "
+            "path from the machine it was taken on, so a trace moved to another "
+            "checkout needs --entry to point at the entry script here."
+        )
+    scan_root = args.path or str(Path(entry).resolve().parent)
+    return scan(scan_root, excludes=args.exclude, entry=entry)
 
 
 def _cmd_diff(args: argparse.Namespace) -> int:
@@ -321,6 +348,16 @@ def _cmd_fix(args: argparse.Namespace) -> int:
             path = Path(args.output) / f"hook-{target}.py"
             path.write_text(render_hook_file(names, module_name=target), encoding="utf-8")
             print(f"wrote {path} ({len(names)} hidden imports)")
+    elif args.output and len(targets) > 1:
+        # One file cannot hold several hook files. Writing the first and
+        # dropping the rest is the silent-partial-result failure this tool
+        # exists to prevent, so refuse and name the alternatives.
+        raise HookfixError(
+            f"{len(targets)} packages need a hook each "
+            f"({', '.join(sorted(targets))}), but -o names a single file. "
+            "Pass a directory to write one hook per package, or --spec for a "
+            "single snippet covering all of them."
+        )
     elif args.output:
         target, names = next(iter(targets.items()))
         Path(args.output).write_text(

@@ -143,6 +143,12 @@ hookfix fix trace.json --spec                 # -> hiddenimports = [...] snippet
 `--spec` prints just the `hiddenimports = [...]` list to drop into an existing
 `.spec` file, or to pass as `--hidden-import` flags. It always works.
 
+> **The generated fix is PyInstaller-specific.** `fix` writes PyInstaller hook
+> files and `.spec` snippets. `run` and `diff` are freezer-agnostic: the list
+> they report is exactly the set of modules missing from the build, and a Nuitka
+> user can feed that list to `--include-module` (or `--include-package`). There
+> is no Nuitka config writer yet.
+
 The hook file is the reusable form of `--hidden-import`, but it comes with a
 constraint worth understanding, because it is the difference between a build
 that works and one that fails silently:
@@ -181,6 +187,19 @@ script, since that hook would never be read.
 **It reports what one run actually imported.** That is the honest boundary of
 any runtime tool. If a code path never executed — a plugin for a mode you did
 not exercise, a platform-specific branch — its imports will not appear.
+
+**Child processes are not traced.** The tracer sees only the interpreter it
+runs in. If your program spawns another Python process (`subprocess`,
+`multiprocessing`) and that child does dynamic imports, those imports are not in
+the report. The report prints a *Child processes were used* notice when it sees
+`subprocess` or `multiprocessing` was imported, but it cannot tell whether a
+child actually ran. Trace a child script directly if it does the dynamic
+importing.
+
+**A moved trace needs `--entry`.** A trace records the entry-point path from the
+machine it was taken on, so re-scanning it from a different checkout fails with
+`entry point does not exist`. Pass `--entry path/to/app.py` to `diff` or `fix`
+to point at the entry script here.
 
 So: run `hookfix` against the widest set of inputs you can, ideally the same
 ones your smoke tests use. The output tells you which call sites are dynamic, so

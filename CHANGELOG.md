@@ -4,10 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.2] - 2026-10-07
 
 ### Fixed
 
+- **Packages sharing a filtered prefix were silently dropped.** The noise filter
+  used `startswith("importlib")` and `startswith("hookfix")`, so
+  `importlib_resources` — a real, widely used package — and any `hookfix_*` name
+  vanished from the report. The user saw a clean result and shipped a binary
+  that crashed. The filter now matches the exact top-level name, so
+  `importlib._bootstrap` is still noise but `importlib_resources` is not.
 - **Private packages were silently dropped.** The noise filter excluded every
   module whose name started with `_`, so a legitimate package like `_mylib`
   whose `_mylib._core` was loaded at runtime never appeared in the report and
@@ -21,6 +27,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   own package (`ModuleNotFoundError: No module named 'a'`) and the run died
   before writing a trace. The dotted package name and its true parent directory
   are now derived by walking up the `__init__.py` chain.
+- **`fix -o FILE` wrote one hook and silently dropped the rest.** When the
+  hidden imports belonged to several top-level packages, `-o` naming a single
+  file wrote only the first hook; the others were discarded, leaving a partial
+  fix that looked complete. It now refuses and names the packages, pointing at
+  a directory or `--spec` instead.
 - **`fix --module` could still write a dead hook file.** Naming a package that
   nothing imports produced `hook-<name>.py` even though PyInstaller would never
   process that name, repeating the exact bug this tool exists to catch. It now
@@ -29,9 +40,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   imports are modules PyInstaller processes", which implies there were some.
   It now says plainly that the trace found none.
 
-## [0.1.2] - 2026-10-07
+### Added
 
-### Fixed
+- **`--entry` for `diff` and `fix`.** A trace records the entry-point path from
+  the machine that took it, so a trace copied into a different checkout failed
+  to re-scan. `--entry path/to/app.py` points at the entry script here.
+- **A child-process notice in the report.** The tracer only sees its own
+  interpreter, so a program that spawns another Python process (`subprocess`,
+  `multiprocessing`) and does dynamic imports there would otherwise report a
+  clean result. The report now warns that child imports are not traced.
+
+### Changed
 
 - **The generated hook file was never loaded.** `hookfix fix --module app`
   wrote `hook-app.py`, and PyInstaller only reads `hook-NAME.py` while it is
@@ -70,6 +89,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The hidden-import list is grouped by top-level package in the report
   (`yaml.*  (17 modules)`), and the copy-paste flags list only the leaves, so a
   package hidden as many submodules no longer buries everything else.
+- The README and package docstring no longer imply Nuitka output. `run` and
+  `diff` are freezer-agnostic and their list suits any freezer; only `fix`
+  writes PyInstaller-specific files, and that is now stated where it matters.
 
 ## [0.1.1] - 2026-10-07
 

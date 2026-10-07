@@ -72,6 +72,34 @@ def test_diff_filters_import_machinery_noise():
     assert result.missing == ["requests"]
 
 
+def test_diff_keeps_package_that_shares_a_filter_prefix():
+    """A real package whose name starts with a filtered prefix must survive.
+
+    Regression: ``_is_noise`` used ``startswith("importlib")`` and
+    ``startswith("hookfix")``, so ``importlib_resources`` (a real, widely used
+    package) and any ``hookfix_*`` name were dropped from the report entirely.
+    The user got a clean bill of health and a binary that crashed. Matching is
+    on the exact top-level name now, so the machinery internals are still
+    filtered but lookalikes are not.
+    """
+    trace = TraceResult(
+        modules=[
+            "importlib",
+            "importlib._bootstrap",
+            "importlib_resources",
+            "hookfix_extra",
+            "hookfix.tracer",
+        ],
+        origins={
+            "importlib_resources": "/x/importlib_resources/__init__.py",
+            "hookfix_extra": "/x/hookfix_extra/__init__.py",
+        },
+    )
+    static = StaticResult(imports=[], reachable=["app"], files=["app.py"])
+    result = diff(trace, static)
+    assert result.missing == ["hookfix_extra", "importlib_resources"]
+
+
 def test_diff_keeps_private_package_with_leading_underscore():
     """A leading underscore is part of the name, not noise.
 

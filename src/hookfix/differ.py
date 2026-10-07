@@ -15,23 +15,28 @@ _STDLIB = frozenset(getattr(sys, "stdlib_module_names", ()))
 #: the interpreter and always present, so they are not a build setting either.
 _BUILTIN = frozenset(sys.builtin_module_names)
 
-#: Import-machinery modules that appear in every trace and mean nothing to a
-#: user reading the report.
-_INTERNAL_PREFIXES = ("importlib",)
+#: Import-machinery and hookfix modules that appear in every trace and mean
+#: nothing to a user reading the report. Matched on the *whole* top-level name:
+#: ``importlib._bootstrap`` is noise, ``importlib_resources`` is a real package
+#: that merely shares a prefix, and a prefix test hid it.
+_INTERNAL_TOP_LEVEL = frozenset({"importlib", "hookfix"})
 
 
 def _is_noise(name: str) -> bool:
     """Is this a hookfix/import-machinery artefact rather than the user's import?
 
-    Only hookfix's own modules and the import machinery are filtered. A leading
-    underscore is *not* noise: ``_mylib._core`` is a real private package, and
-    dropping it hid a genuine hidden import. Standard-library and built-in
+    Only hookfix's own modules and the import machinery are filtered, and only
+    on an exact top-level match. A leading underscore is *not* noise:
+    ``_mylib._core`` is a real private package, and dropping it hid a genuine
+    hidden import. Neither is a shared prefix: ``importlib_resources`` and a
+    hypothetical ``hookfix_extra`` are real packages, so a ``startswith`` test
+    silently dropped them from the report. Standard-library and built-in
     underscore modules (``_csv``, ``_sre``, ``_weakrefset``) are still excluded,
-    but by name via the stdlib/built-in sets in :func:`diff`, not by prefix.
+    but by name via the stdlib/built-in sets in :func:`diff`.
     """
     if name in {"builtins", "sys", "os", "io", "abc", "codecs", "site", "types", "warnings"}:
         return False
-    return name.startswith(_INTERNAL_PREFIXES) or name.startswith("hookfix")
+    return name.split(".")[0] in _INTERNAL_TOP_LEVEL
 
 
 def _stdlib_names() -> set[str]:

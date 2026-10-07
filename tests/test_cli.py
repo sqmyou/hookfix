@@ -267,6 +267,101 @@ def test_fix_writes_one_hook_per_package(tmp_path, capsys):
     assert "'beta.two'," in beta and "alpha" not in beta
 
 
+def test_fix_refuses_single_file_for_multiple_hooks(tmp_path, capsys):
+    """-o FILE with several packages must error, not write one and drop the rest.
+
+    Regression: the first hook was written and the others silently discarded,
+    so the user got a partial fix that looked like a complete one -- the exact
+    silent-partial-result failure this tool exists to prevent.
+    """
+    trace_file = tmp_path / "trace.json"
+    main(
+        [
+            "run",
+            str(TWO_PKGS_APP_ENTRY),
+            "--path",
+            str(TWO_PKGS_APP),
+            "--quiet",
+            "--trace-out",
+            str(trace_file),
+        ]
+    )
+    capsys.readouterr()
+    out_file = tmp_path / "out.py"
+    code = main(["fix", str(trace_file), "--path", str(TWO_PKGS_APP), "-o", str(out_file)])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "alpha" in err and "beta" in err
+    assert not out_file.exists()
+
+
+def test_fix_entry_override_makes_a_moved_trace_work(tmp_path, capsys):
+    """A trace taken elsewhere can be re-scanned with --entry.
+
+    The trace records the entry path from the machine it was taken on, so a
+    trace copied into another checkout fails unless --entry points at the entry
+    script here.
+    """
+    trace_file = tmp_path / "trace.json"
+    main(
+        [
+            "run",
+            str(TWO_PKGS_APP_ENTRY),
+            "--path",
+            str(TWO_PKGS_APP),
+            "--quiet",
+            "--trace-out",
+            str(trace_file),
+        ]
+    )
+    capsys.readouterr()
+
+    # Rewrite the recorded entry to a path that does not exist here, as a trace
+    # moved between machines would be.
+    data = json.loads(trace_file.read_text())
+    data["entry"] = "/somewhere/else/app.py"
+    trace_file.write_text(json.dumps(data))
+
+    code = main(["fix", str(trace_file), "--path", str(TWO_PKGS_APP)])
+    assert code == 2
+    assert "does not exist" in capsys.readouterr().err
+
+    code = main(
+        [
+            "fix",
+            str(trace_file),
+            "--path",
+            str(TWO_PKGS_APP),
+            "--entry",
+            str(TWO_PKGS_APP_ENTRY),
+            "--spec",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "alpha.one" in out and "beta.two" in out
+
+
+def test_run_warns_when_child_processes_may_have_run(capsys, tmp_path):
+    """A run that imports subprocess must say child imports are not traced.
+
+    The tracer only sees its own interpreter. Without this notice a program that
+    shells out to another Python script reports a clean result and the reader
+    has no way to know part of the program was never observed.
+    """
+    child = tmp_path / "child.py"
+    child.write_text("print('hi')\n")
+    app = tmp_path / "app.py"
+    app.write_text(
+        "import subprocess, sys\n"
+        "subprocess.run([sys.executable, 'child.py'], capture_output=True)\n"
+    )
+    code = main(["run", str(app), "--path", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Child processes were used" in out
+
+
 def test_diff_from_saved_trace(capsys, tmp_path):
     trace_file = tmp_path / "trace.json"
     main(
