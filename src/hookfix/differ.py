@@ -29,6 +29,22 @@ def _stdlib_names() -> set[str]:
     return set()
 
 
+def _covered_by_reachable(name: str, reachable: set[str]) -> bool:
+    """Is ``name`` something the freezer will bundle on its own?
+
+    The comparison is against the modules reachable from the entry point, not
+    against every import in the tree. A file that nothing imports is still
+    scanned but never bundled, so treating its imports as "already visible"
+    would hide modules that are genuinely missing.
+    """
+    if name in reachable:
+        return True
+    # Importing ``pkg`` executes ``pkg/__init__.py``, so a package being
+    # reachable covers the modules that file imports.
+    parts = name.split(".")
+    return any(".".join(parts[:i]) in reachable for i in range(1, len(parts)))
+
+
 def diff(trace: TraceResult, static: StaticResult) -> DiffResult:
     """Return the runtime imports that the static scan did not find.
 
@@ -36,8 +52,17 @@ def diff(trace: TraceResult, static: StaticResult) -> DiffResult:
     freezer needs: ``--hidden-import=reporters.json_reporter``, not the bare
     package name. ``stdlib_only`` is kept separate because a freezer bundles
     the standard library regardless.
+
+    Requires ``static.reachable``. When it is empty the scan had no entry
+    point, and there is no honest answer: falling back to the tree-wide
+    ``imports`` set would silently drop real gaps, so this is an error.
     """
-    static_names = set(static.imports)
+    reachable = set(static.reachable)
+    if not reachable:
+        raise ValueError(
+            "diff requires a reachable set; scan() was called without an entry point"
+        )
+
     runtime_names = {name for name in trace.modules if not _is_noise(name)}
     stdlib = _stdlib_names()
 
@@ -46,7 +71,7 @@ def diff(trace: TraceResult, static: StaticResult) -> DiffResult:
     common: set[str] = set()
 
     for name in runtime_names:
-        if name in static_names:
+        if _covered_by_reachable(name, reachable):
             common.add(name)
         elif name.split(".")[0] in stdlib:
             stdlib_only.add(name)

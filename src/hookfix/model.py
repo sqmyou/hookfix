@@ -13,7 +13,12 @@ from typing import Any
 
 #: Schema version for the JSON artefacts we write. Bump when the shape changes
 #: in a way that older readers cannot understand.
-SCHEMA_VERSION = 1
+#:
+#: * 1 — initial format.
+#: * 2 — :class:`TraceResult` gained ``entry``, the entry-point path. The differ
+#:   needs it to know which modules a freezer can actually reach, so a trace
+#:   without it cannot be interpreted correctly.
+SCHEMA_VERSION = 2
 
 
 @dataclass
@@ -45,8 +50,16 @@ class DynamicSite:
 class StaticResult:
     """What a static scan of the source tree can see."""
 
-    #: Top-level module names referenced by ``import`` statements.
+    #: Every module name referenced by an ``import`` statement anywhere in the
+    #: scanned tree. This is *not* the set to compare against a runtime trace:
+    #: a file nothing imports is still scanned. Use ``reachable`` for that.
     imports: list[str] = field(default_factory=list)
+    #: Module names a freezer will actually bundle: those reachable from
+    #: ``entry`` by following ``import`` statements, plus the parents of each.
+    #: Empty when no entry point was supplied.
+    reachable: list[str] = field(default_factory=list)
+    #: The entry point the reachable set was computed from, if any.
+    entry: str | None = None
     #: Locations of dynamic import calls.
     dynamic_sites: list[DynamicSite] = field(default_factory=list)
     #: Files that were scanned.
@@ -56,6 +69,8 @@ class StaticResult:
         return {
             "schema_version": SCHEMA_VERSION,
             "imports": self.imports,
+            "reachable": self.reachable,
+            "entry": self.entry,
             "dynamic_sites": [site.to_dict() for site in self.dynamic_sites],
             "files": self.files,
         }
@@ -64,6 +79,8 @@ class StaticResult:
     def from_dict(cls, data: dict[str, Any]) -> StaticResult:
         return cls(
             imports=list(data.get("imports", [])),
+            reachable=list(data.get("reachable", [])),
+            entry=data.get("entry"),
             dynamic_sites=[DynamicSite.from_dict(d) for d in data.get("dynamic_sites", [])],
             files=list(data.get("files", [])),
         )
@@ -81,6 +98,10 @@ class TraceResult:
     python: str = field(default_factory=lambda: sys.version.split()[0])
     #: Exit status of the traced program.
     returncode: int = 0
+    #: The entry-point script that was traced. The differ needs it to work out
+    #: which modules the freezer can reach; a trace without it (schema 1) is
+    #: rejected by ``diff``.
+    entry: str | None = None
 
     @property
     def top_level(self) -> list[str]:
@@ -92,6 +113,7 @@ class TraceResult:
             "schema_version": SCHEMA_VERSION,
             "python": self.python,
             "returncode": self.returncode,
+            "entry": self.entry,
             "modules": self.modules,
             "origins": self.origins,
         }
@@ -103,6 +125,7 @@ class TraceResult:
             origins=dict(data.get("origins", {})),
             python=data.get("python", ""),
             returncode=int(data.get("returncode", 0)),
+            entry=data.get("entry"),
         )
 
 

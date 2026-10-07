@@ -24,7 +24,7 @@ from pathlib import Path
 from . import __version__
 from .differ import diff
 from .errors import HookfixError
-from .model import TraceResult
+from .model import StaticResult, TraceResult
 from .report import format_report
 from .scanner import scan
 from .spec_writer import render_hook_file, render_spec_patch
@@ -43,8 +43,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "run",
         help="run a script under the tracer and report hidden imports",
         description=(
-            "Run a script under a CPython audit hook, record every module it "
-            "imports, and compare that against a static scan of the source. "
+            "Run a script under a meta path import tracer, record every module "
+            "it imports, and compare that against a static scan of the source. "
             "Arguments after '--' are passed through to the traced script."
         ),
     )
@@ -141,7 +141,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _trace_script(script: Path, script_args: Sequence[str], quiet: bool) -> TraceResult:
-    """Run ``script`` in a child process under the audit hook and collect the trace."""
+    """Run ``script`` in a child process under the tracer and collect the trace."""
     with tempfile.TemporaryDirectory(prefix="hookfix-") as tmp:
         logfile = Path(tmp) / "imports.log"
         cmd: list[str] = [
@@ -165,6 +165,7 @@ def _trace_script(script: Path, script_args: Sequence[str], quiet: bool) -> Trac
         modules=sorted(modules),
         origins=origins,
         returncode=completed.returncode,
+        entry=str(script),
     )
 
 
@@ -181,7 +182,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     trace = _trace_script(script, args.script_args, args.quiet)
 
     scan_root = Path(args.path).resolve() if args.path else script.parent
-    static = scan(scan_root, excludes=args.exclude)
+    static = scan(scan_root, excludes=args.exclude, entry=script)
     result = diff(trace, static)
 
     if args.trace_out:
@@ -202,10 +203,25 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _scan_for_trace(trace: TraceResult, args: argparse.Namespace) -> StaticResult:
+    """Re-scan for a saved trace, using the entry point recorded in it.
+
+    A schema-1 trace has no entry point, and without one there is no way to
+    know which modules the freezer can reach. Guessing would produce a
+    confidently wrong answer, so say so instead.
+    """
+    if not trace.entry:
+        raise HookfixError(
+            f"{args.trace} has no entry point recorded (it predates schema 2); "
+            "re-run 'hookfix run --trace-out' to regenerate it"
+        )
+    scan_root = args.path or str(Path(trace.entry).resolve().parent)
+    return scan(scan_root, excludes=args.exclude, entry=trace.entry)
+
+
 def _cmd_diff(args: argparse.Namespace) -> int:
     trace = _load_trace(args.trace)
-    scan_root = args.path or str(Path(args.trace).resolve().parent)
-    static = scan(scan_root, excludes=args.exclude)
+    static = _scan_for_trace(trace, args)
     result = diff(trace, static)
 
     if args.json:
@@ -224,8 +240,7 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 
 def _cmd_fix(args: argparse.Namespace) -> int:
     trace = _load_trace(args.trace)
-    scan_root = args.path or str(Path(args.trace).resolve().parent)
-    static = scan(scan_root, excludes=args.exclude)
+    static = _scan_for_trace(trace, args)
     result = diff(trace, static)
 
     if args.spec:
