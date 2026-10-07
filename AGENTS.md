@@ -57,3 +57,28 @@ Linux (3.10-3.13) plus macOS and Windows (3.12).
 4. **The tool reports one execution.** An unexercised code path stays
    invisible. That is the contract, documented in `README.md` and shown in
    `DEMO.md`. Do not paper over it with guesswork.
+
+## Releasing
+
+`main` is the release branch. To cut a release:
+
+1. Bump `__version__` in `src/hookfix/__init__.py` (hatchling reads it from
+   there) and add a dated section to `CHANGELOG.md`.
+2. `python -m build && python -m twine check dist/*` — both must pass.
+3. Commit, push, then `git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`.
+4. `gh release create vX.Y.Z --title ... --notes ...` — publishing the release
+   triggers `.github/workflows/publish.yml`, which builds and uploads to PyPI.
+
+Publishing uses PyPI Trusted Publishing (OIDC), so no API token is stored here.
+This requires a one-time setup on PyPI that only a human can do: at
+<https://pypi.org/manage/account/publishing/>, add a pending publisher with
+
+- PyPI project name: `hookfix`
+- Owner: `sqmyou`
+- Repository: `hookfix`
+- Workflow name: `publish.yml`
+- Environment: `pypi`
+
+Until that exists, the `publish` job fails with `invalid-publisher`. The
+`build` job still succeeds, so the artefacts can be checked without PyPI.
+
