@@ -3,8 +3,8 @@
 **Find the hidden imports that break your frozen Python app.**
 
 [![CI](https://github.com/sqmyou/hookfix/actions/workflows/ci.yml/badge.svg)](https://github.com/sqmyou/hookfix/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/hookfix.svg)](https://pypi.org/project/hookfix/)
-[![Python versions](https://img.shields.io/pypi/pyversions/hookfix.svg)](https://pypi.org/project/hookfix/)
+[![PyPI](https://img.shields.io/pypi/v/hookfix.svg?style=flat)](https://pypi.org/project/hookfix/)
+[![Python versions](https://img.shields.io/pypi/pyversions/hookfix.svg?style=flat)](https://pypi.org/project/hookfix/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
