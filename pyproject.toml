@@ -45,6 +45,10 @@ dev = [
     "pytest-cov>=5",
     "mypy>=1.10",
     "ruff>=0.6",
+    # The integration test freezes a real app and runs the binary. Without
+    # PyInstaller installed it is skipped, which is how a dead hook file shipped
+    # unnoticed. Keep it here so CI exercises the freeze.
+    "pyinstaller>=6",
 ]
 
 [project.urls]
@@ -58,6 +62,7 @@ dev = [
     "pytest-cov>=5",
     "mypy>=1.10",
     "ruff>=0.6",
+    "pyinstaller>=6",
 ]
 
 [tool.hatch.version]
