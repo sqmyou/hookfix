@@ -284,9 +284,20 @@ def _cmd_fix(args: argparse.Namespace) -> int:
                 "let hookfix choose."
             )
         top = args.module.split(".")[0]
+        if top not in reachable:
+            # Same rule the automatic path applies, but the user asked for this
+            # name explicitly, so say so rather than write a dead file.
+            raise HookfixError(
+                f"no hook can cover {args.module}: nothing in the program imports "
+                f"'{top}', so PyInstaller never processes it and never reads the "
+                "hook. Use --spec, or pass --hidden-import for these modules."
+            )
         for_this = [name for name in result.missing if name.split(".")[0] == top]
         if not for_this:
-            for_this = list(result.missing)
+            raise HookfixError(
+                f"no hidden import belongs to '{args.module}'. "
+                f"Hidden imports: {', '.join(result.missing) or '(none)'}."
+            )
         targets = {args.module: for_this}
     else:
         targets = {
@@ -295,10 +306,13 @@ def _cmd_fix(args: argparse.Namespace) -> int:
         }
 
     if not targets:
-        print(
-            "no hook file written: none of the hidden imports are modules "
-            "PyInstaller processes, so a hook would never fire."
-        )
+        if result.missing:
+            print(
+                "no hook file written: none of the hidden imports are modules "
+                "PyInstaller processes, so a hook would never fire."
+            )
+        else:
+            print("no hook file written: the trace found no hidden imports.")
         _print_hidden_import_advice(unconditional)
         return 0
 

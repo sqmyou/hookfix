@@ -17,7 +17,7 @@ import pytest
 
 from hookfix.cli import main
 
-from .conftest import HOOKED_APP, HOOKED_APP_ENTRY
+from .conftest import HOOKED_APP, HOOKED_APP_ENTRY, PRIVATE_APP, PRIVATE_APP_ENTRY
 
 pytestmark = pytest.mark.skipif(
     shutil.which("pyinstaller") is None, reason="PyInstaller is not installed"
@@ -107,3 +107,48 @@ def test_hidden_import_flag_makes_the_frozen_binary_work(tmp_path, capsys):
     result = subprocess.run([str(fixed)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert "helper: helper" in result.stdout
+
+
+def test_private_package_hook_makes_the_frozen_binary_work(tmp_path, capsys):
+    """A leading-underscore package must be reported *and* fixed.
+
+    Regression: the noise filter dropped every ``_``-prefixed name, so the
+    report was empty, no hook was written, and the frozen binary died. This
+    freezes the real app and proves the generated ``hook-_priv.py`` is loaded.
+    """
+    trace_file = tmp_path / "trace.json"
+    main(
+        [
+            "run",
+            str(PRIVATE_APP_ENTRY),
+            "--path",
+            str(PRIVATE_APP),
+            "--quiet",
+            "--trace-out",
+            str(trace_file),
+        ]
+    )
+    capsys.readouterr()
+
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    code = main(["fix", str(trace_file), "--path", str(PRIVATE_APP), "-o", str(hooks)])
+    assert code == 0
+    hook_file = hooks / "hook-_priv.py"
+    assert hook_file.exists()
+    assert "'_priv._core'," in hook_file.read_text()
+
+    fixed = _freeze(
+        PRIVATE_APP_ENTRY,
+        tmp_path / "priv",
+        [
+            "--onefile",
+            "--paths",
+            str(PRIVATE_APP),
+            "--additional-hooks-dir",
+            str(hooks),
+        ],
+    )
+    result = subprocess.run([str(fixed)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert "2" in result.stdout

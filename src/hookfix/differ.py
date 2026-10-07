@@ -10,12 +10,25 @@ from .model import DiffResult, StaticResult, TraceResult
 #: frozen build, so a runtime-only standard-library import is not a defect.
 _STDLIB = frozenset(getattr(sys, "stdlib_module_names", ()))
 
-#: Import machinery internals that appear in every trace and mean nothing to a
+#: Built-in extension modules (``_csv``, ``_sre``, ...). Some are absent from
+#: ``sys.stdlib_module_names`` on older interpreters, but they are compiled into
+#: the interpreter and always present, so they are not a build setting either.
+_BUILTIN = frozenset(sys.builtin_module_names)
+
+#: Import-machinery modules that appear in every trace and mean nothing to a
 #: user reading the report.
-_INTERNAL_PREFIXES = ("_", "importlib")
+_INTERNAL_PREFIXES = ("importlib",)
 
 
 def _is_noise(name: str) -> bool:
+    """Is this a hookfix/import-machinery artefact rather than the user's import?
+
+    Only hookfix's own modules and the import machinery are filtered. A leading
+    underscore is *not* noise: ``_mylib._core`` is a real private package, and
+    dropping it hid a genuine hidden import. Standard-library and built-in
+    underscore modules (``_csv``, ``_sre``, ``_weakrefset``) are still excluded,
+    but by name via the stdlib/built-in sets in :func:`diff`, not by prefix.
+    """
     if name in {"builtins", "sys", "os", "io", "abc", "codecs", "site", "types", "warnings"}:
         return False
     return name.startswith(_INTERNAL_PREFIXES) or name.startswith("hookfix")
@@ -73,9 +86,10 @@ def diff(trace: TraceResult, static: StaticResult) -> DiffResult:
     common: set[str] = set()
 
     for name in runtime_names:
+        top = name.split(".")[0]
         if _covered_by_reachable(name, reachable):
             common.add(name)
-        elif name.split(".")[0] in stdlib:
+        elif top in stdlib or top in _BUILTIN or name in _BUILTIN:
             stdlib_only.add(name)
         elif trace.origins.get(name):
             missing.add(name)

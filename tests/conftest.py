@@ -23,3 +23,12 @@ HOOKED_APP_ENTRY = HOOKED_APP / "app.py"
 #: Two such packages in one app, to check that each hook carries only its own.
 TWO_PKGS_APP = FIXTURES / "two_pkgs_app"
 TWO_PKGS_APP_ENTRY = TWO_PKGS_APP / "app.py"
+#: A private package whose name starts with an underscore. The underscore is
+#: part of the name, not a sign of import-machinery noise, so its dynamically
+#: loaded submodule must still be reported.
+PRIVATE_APP = FIXTURES / "private_app"
+PRIVATE_APP_ENTRY = PRIVATE_APP / "app.py"
+#: A package entry point nested inside another package, run as ``python -m a.b``.
+#: The module name and the ``sys.path`` entry both have to walk up two levels.
+NESTED_PKG_APP = FIXTURES / "nested_pkg_app"
+NESTED_PKG_APP_ENTRY = NESTED_PKG_APP / "a" / "b" / "__main__.py"

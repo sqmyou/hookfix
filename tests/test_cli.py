@@ -13,8 +13,12 @@ from .conftest import (
     HOOKED_APP_ENTRY,
     NESTED_APP,
     NESTED_APP_ENTRY,
+    NESTED_PKG_APP,
+    NESTED_PKG_APP_ENTRY,
     PKG_APP,
     PKG_APP_ENTRY,
+    PRIVATE_APP,
+    PRIVATE_APP_ENTRY,
     TWO_PKGS_APP,
     TWO_PKGS_APP_ENTRY,
 )
@@ -131,6 +135,86 @@ def test_fix_refuses_hook_named_after_the_entry_script(capsys, tmp_path):
     err = capsys.readouterr().err
     assert code == 2
     assert "never" in err and "__main__" in err
+
+
+def test_fix_rejects_module_nothing_imports(capsys, tmp_path):
+    """--module naming an unreachable package must error, not write a dead file.
+
+    A hook only fires for a module PyInstaller processes. If nothing imports the
+    name, the hook is never read, so writing it would repeat the original bug.
+    """
+    trace_file = tmp_path / "trace.json"
+    main(
+        [
+            "run",
+            str(HOOKED_APP_ENTRY),
+            "--path",
+            str(HOOKED_APP),
+            "--quiet",
+            "--trace-out",
+            str(trace_file),
+        ]
+    )
+    capsys.readouterr()
+    code = main(["fix", str(trace_file), "--path", str(HOOKED_APP), "--module", "nope"])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "no hook can cover nope" in err
+
+
+def test_fix_prints_clean_message_when_nothing_is_hidden(capsys, tmp_path):
+    clean = tmp_path / "clean.py"
+    clean.write_text("print('hi')\n")
+    trace_file = tmp_path / "trace.json"
+    main(["run", str(clean), "--path", str(tmp_path), "--quiet", "--trace-out", str(trace_file)])
+    capsys.readouterr()
+    code = main(["fix", str(trace_file), "--path", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "no hidden imports" in out
+
+
+def test_run_reports_private_package_submodule(capsys):
+    """A ``_``-prefixed package's dynamic submodule must be reported.
+
+    Regression: the noise filter dropped every ``_``-prefixed name, so
+    ``_priv._core`` never appeared and the frozen app died.
+    """
+    code = main(
+        [
+            "run",
+            str(PRIVATE_APP_ENTRY),
+            "--path",
+            str(PRIVATE_APP),
+            "--quiet",
+            "--json",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["missing"] == ["_priv._core"]
+
+
+def test_run_handles_nested_package_entry(capsys):
+    """``python -m a.b`` from ``a/b/__main__.py`` resolves the dotted package.
+
+    Regression: the bootstrap returned only the leaf name ``b`` and put the
+    package directory on ``sys.path``, so the program could not import ``a``
+    and the run died before any trace was written.
+    """
+    code = main(
+        [
+            "run",
+            str(NESTED_PKG_APP_ENTRY),
+            "--path",
+            str(NESTED_PKG_APP),
+            "--quiet",
+            "--json",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["missing"] == ["a.b.worker"]
 
 
 def test_fix_writes_to_directory(capsys, tmp_path):

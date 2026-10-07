@@ -58,18 +58,33 @@ class _Recorder:
 
 
 def _package_of(script: str) -> str | None:
-    """Return the package name when ``script`` is a ``__main__.py`` of a package.
+    """Return the dotted package name when ``script`` is a package ``__main__.py``.
 
-    ``python -m mypkg`` runs ``mypkg/__main__.py``; the module to execute is the
-    package, and the directory that must be on ``sys.path`` is the package's
-    *parent*, not the package itself.
+    ``python -m mypkg`` runs ``mypkg/__main__.py``; ``python -m a.b`` runs
+    ``a/b/__main__.py``. The module to execute is the whole dotted package, and
+    the directory that must be on ``sys.path`` is the package's *parent* -- the
+    first ancestor that is not itself a package. Returning only the leaf name
+    (``b`` for ``a.b``) ran the wrong module and put the wrong directory on the
+    path, so the program could not import its own siblings.
     """
     if os.path.basename(script) != "__main__.py":
         return None
     pkg_dir = os.path.dirname(os.path.abspath(script))
     if not os.path.exists(os.path.join(pkg_dir, "__init__.py")):
         return None
-    return os.path.basename(pkg_dir)
+    parts: list[str] = []
+    while os.path.exists(os.path.join(pkg_dir, "__init__.py")):
+        parts.append(os.path.basename(pkg_dir))
+        pkg_dir = os.path.dirname(pkg_dir)
+    return ".".join(reversed(parts))
+
+
+def _package_path_entry(script: str, package: str) -> str:
+    """The ``sys.path`` entry that lets ``package`` resolve: its parent dir."""
+    parent = os.path.dirname(os.path.abspath(script))
+    for _ in package.split("."):
+        parent = os.path.dirname(parent)
+    return parent
 
 
 def _main() -> None:  # pragma: no cover - exercised via subprocess in tests
@@ -85,7 +100,7 @@ def _main() -> None:  # pragma: no cover - exercised via subprocess in tests
     # package entry point the package's parent is what belongs on sys.path.
     package = _package_of(script)
     if package is not None:
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(script))))
+        sys.path.insert(0, _package_path_entry(script, package))
     else:
         sys.path.insert(0, os.path.dirname(os.path.abspath(script)))
 

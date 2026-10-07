@@ -72,6 +72,28 @@ def test_diff_filters_import_machinery_noise():
     assert result.missing == ["requests"]
 
 
+def test_diff_keeps_private_package_with_leading_underscore():
+    """A leading underscore is part of the name, not noise.
+
+    Regression: ``_is_noise`` dropped every ``_``-prefixed module, so a real
+    private package loaded dynamically (``_mylib._core``) was silently omitted
+    from the report and the frozen app died. Underscore *stdlib* modules are
+    still excluded -- by name, not by prefix.
+    """
+    trace = TraceResult(
+        modules=["_priv", "_priv._core", "_weakrefset"],
+        origins={
+            "_priv": "/x/_priv/__init__.py",
+            "_priv._core": "/x/_priv/_core.py",
+            "_weakrefset": "/usr/lib/python3.13/_weakrefset.py",
+        },
+    )
+    static = StaticResult(imports=["_priv"], reachable=["app", "_priv"], files=["app.py"])
+    result = diff(trace, static)
+    assert result.missing == ["_priv._core"]
+    assert "_weakrefset" in result.stdlib_only
+
+
 def test_diff_is_empty_when_nothing_is_hidden():
     trace = TraceResult(modules=["csv"])
     static = StaticResult(imports=["csv"], reachable=["app", "csv"], files=["app.py"])

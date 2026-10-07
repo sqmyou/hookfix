@@ -6,6 +6,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Private packages were silently dropped.** The noise filter excluded every
+  module whose name started with `_`, so a legitimate package like `_mylib`
+  whose `_mylib._core` was loaded at runtime never appeared in the report and
+  the frozen app died with `ModuleNotFoundError`. A leading underscore is part
+  of a name, not a sign of import-machinery noise; only `importlib`, hookfix's
+  own modules, and standard-library/built-in names are filtered now. `_csv`,
+  `_sre` and friends are still excluded, by name rather than by prefix.
+- **Nested package entry points resolved to the wrong module.** For an app run
+  as `python -m a.b`, the tracer returned only the leaf name `b` and put the
+  package directory itself on `sys.path`, so the program could not import its
+  own package (`ModuleNotFoundError: No module named 'a'`) and the run died
+  before writing a trace. The dotted package name and its true parent directory
+  are now derived by walking up the `__init__.py` chain.
+- **`fix --module` could still write a dead hook file.** Naming a package that
+  nothing imports produced `hook-<name>.py` even though PyInstaller would never
+  process that name, repeating the exact bug this tool exists to catch. It now
+  fails with an explanation instead of emitting an inert artefact.
+- `hookfix fix` on a trace with no hidden imports printed "none of the hidden
+  imports are modules PyInstaller processes", which implies there were some.
+  It now says plainly that the trace found none.
+
 ## [0.1.2] - 2026-10-07
 
 ### Fixed

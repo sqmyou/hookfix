@@ -85,6 +85,11 @@ Linux (3.10-3.13) plus macOS and Windows (3.12).
    skipped without it, and a skipped test is how the dead hook file shipped in
    the first place. CI installs `.[dev]` and must actually run the freeze.
 
+9. **A leading underscore is not noise.** `_mylib._core` is a real private
+   package. Filter only `importlib`, hookfix's own modules, and stdlib/built-in
+   names — the latter by name, not by prefix, since `_csv` and `_sre` are
+   stdlib but `_priv` is not. A prefix rule here silently hides real gaps.
+
 ## Releasing
 
 `main` is the release branch. To cut a release:
