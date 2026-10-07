@@ -36,13 +36,14 @@ def _covered_by_reachable(name: str, reachable: set[str]) -> bool:
     against every import in the tree. A file that nothing imports is still
     scanned but never bundled, so treating its imports as "already visible"
     would hide modules that are genuinely missing.
+
+    Only an exact match counts. A reachable *parent* does not cover a
+    submodule: bundling ``mypkg`` bundles the ``__init__.py`` and what it
+    imports, but a ``mypkg.worker`` reached only through
+    ``importlib.import_module`` is not in the archive. Treating the parent as
+    covering it produced a binary that died with ``ModuleNotFoundError``.
     """
-    if name in reachable:
-        return True
-    # Importing ``pkg`` executes ``pkg/__init__.py``, so a package being
-    # reachable covers the modules that file imports.
-    parts = name.split(".")
-    return any(".".join(parts[:i]) in reachable for i in range(1, len(parts)))
+    return name in reachable
 
 
 def diff(trace: TraceResult, static: StaticResult) -> DiffResult:
@@ -68,6 +69,7 @@ def diff(trace: TraceResult, static: StaticResult) -> DiffResult:
 
     missing: set[str] = set()
     stdlib_only: set[str] = set()
+    unresolved: set[str] = set()
     common: set[str] = set()
 
     for name in runtime_names:
@@ -75,17 +77,28 @@ def diff(trace: TraceResult, static: StaticResult) -> DiffResult:
             common.add(name)
         elif name.split(".")[0] in stdlib:
             stdlib_only.add(name)
-        else:
+        elif trace.origins.get(name):
             missing.add(name)
+        else:
+            # The tracer saw the import attempted but nothing resolved it. There
+            # is no file to bundle, so this is not a hidden import: the module is
+            # simply absent from the environment (or is built in, in which case
+            # it has no origin either). Reporting it as hidden would send the
+            # reader chasing a build setting that cannot help.
+            unresolved.add(name)
 
     # A package whose own submodule is reported is redundant: importing the
     # submodule pulls the package in, and listing both clutters the config.
     missing = {name for name in missing if not any(
         other != name and other.startswith(name + ".") for other in missing
     )}
+    unresolved = {name for name in unresolved if not any(
+        other != name and other.startswith(name + ".") for other in unresolved
+    )}
 
     return DiffResult(
         missing=sorted(missing),
         stdlib_only=sorted(stdlib_only),
         common=sorted(common),
+        unresolved=sorted(unresolved),
     )

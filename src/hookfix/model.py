@@ -140,6 +140,9 @@ class DiffResult:
     stdlib_only: list[str] = field(default_factory=list)
     #: Names seen by both, for context.
     common: list[str] = field(default_factory=list)
+    #: Names the program tried to import but nothing could resolve, so there is
+    #: no file to bundle. These are environment problems, not build settings.
+    unresolved: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -147,6 +150,7 @@ class DiffResult:
             "missing": self.missing,
             "stdlib_only": self.stdlib_only,
             "common": self.common,
+            "unresolved": self.unresolved,
         }
 
     @classmethod
@@ -155,4 +159,5 @@ class DiffResult:
             missing=list(data.get("missing", [])),
             stdlib_only=list(data.get("stdlib_only", [])),
             common=list(data.get("common", [])),
+            unresolved=list(data.get("unresolved", [])),
         )

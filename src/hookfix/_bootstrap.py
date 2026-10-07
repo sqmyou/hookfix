@@ -42,11 +42,34 @@ class _Recorder:
                 continue
             spec = find_spec(fullname, path, target)
             if spec is not None:
-                origin = getattr(spec, "origin", None) or ""
-                self._log.write(f"{fullname}\t{origin}\n")
+                origin = getattr(spec, "origin", None)
+                if not origin:
+                    # A namespace package (PEP 420) has no ``__init__.py`` and so
+                    # no origin. Its search locations stand in, so that a
+                    # resolved namespace package is not mistaken for a missing
+                    # one.
+                    locations = getattr(spec, "submodule_search_locations", None)
+                    if locations:
+                        origin = next(iter(locations), None)
+                self._log.write(f"{fullname}\t{origin or ''}\n")
                 return spec
         self._log.write(f"{fullname}\t\n")
         return None
+
+
+def _package_of(script: str) -> str | None:
+    """Return the package name when ``script`` is a ``__main__.py`` of a package.
+
+    ``python -m mypkg`` runs ``mypkg/__main__.py``; the module to execute is the
+    package, and the directory that must be on ``sys.path`` is the package's
+    *parent*, not the package itself.
+    """
+    if os.path.basename(script) != "__main__.py":
+        return None
+    pkg_dir = os.path.dirname(os.path.abspath(script))
+    if not os.path.exists(os.path.join(pkg_dir, "__init__.py")):
+        return None
+    return os.path.basename(pkg_dir)
 
 
 def _main() -> None:  # pragma: no cover - exercised via subprocess in tests
@@ -58,9 +81,13 @@ def _main() -> None:  # pragma: no cover - exercised via subprocess in tests
     script = sys.argv[2]
 
     # Mimic a plain ``python script.py`` invocation: the script's directory
-    # becomes the first entry on sys.path, so sibling packages resolve.
-    script_dir = os.path.dirname(os.path.abspath(script))
-    sys.path.insert(0, script_dir)
+    # becomes the first entry on sys.path, so sibling packages resolve. For a
+    # package entry point the package's parent is what belongs on sys.path.
+    package = _package_of(script)
+    if package is not None:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(script))))
+    else:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(script)))
 
     # Present the script the way a normal ``python script.py`` invocation does.
     sys.argv = [script, *sys.argv[3:]]
@@ -69,7 +96,10 @@ def _main() -> None:  # pragma: no cover - exercised via subprocess in tests
         # Install the recorder last, so nothing hookfix itself imported is
         # logged as if the user's program had imported it.
         sys.meta_path.insert(0, _Recorder(log))
-        runpy.run_path(script, run_name="__main__")
+        if package is not None:
+            runpy.run_module(package, run_name="__main__", alter_sys=True)
+        else:
+            runpy.run_path(script, run_name="__main__")
 
 
 if __name__ == "__main__":  # pragma: no cover

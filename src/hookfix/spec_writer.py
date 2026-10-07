@@ -13,17 +13,34 @@ _HEADER = (
 )
 
 
-def render_hook_file(modules: Sequence[str], *, module_name: str | None = None) -> str:
-    """Render a PyInstaller hook file (``hook-<name>.py``).
+def hook_targets(modules: Sequence[str]) -> list[str]:
+    """Top-level module names a hook must be keyed to, in first-seen order.
 
-    A hook is the reusable form of ``--hidden-import``: it applies automatically
-    whenever the named module is imported, including inside a frozen build.
+    PyInstaller consults ``hook-<name>.py`` only while it is processing the
+    module ``<name>``. The modules worth hiding are submodules, so the hook has
+    to be keyed to the top-level package that owns them: ``reporters`` for
+    ``reporters.json_reporter``.
     """
-    title = module_name or "your_app"
+    targets: list[str] = []
+    for name in modules:
+        top = name.split(".")[0]
+        if top not in targets:
+            targets.append(top)
+    return targets
+
+
+def render_hook_file(modules: Sequence[str], *, module_name: str) -> str:
+    """Render a PyInstaller hook file (``hook-<module_name>.py``).
+
+    ``module_name`` must be a module PyInstaller actually processes, otherwise
+    the file is never read. In particular it cannot be the entry script:
+    PyInstaller knows the entry script as ``__main__``, so a hook named after
+    the script file never fires. Use :func:`hook_targets` to pick names.
+    """
     body = "\n".join(f"    {name!r}," for name in modules) or "    # (none)"
     return (
         f"{_HEADER}"
-        f"# hook-{title}.py\n"
+        f"# hook-{module_name}.py\n"
         f"\n"
         f"hiddenimports = [\n"
         f"{body}\n"

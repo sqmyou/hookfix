@@ -53,6 +53,9 @@ Or generate a hook file for all of them at once:
 
   hookfix fix
 
+(That only works for modules PyInstaller actually processes. See
+[`hookfix fix`](#hookfix-fix--generate-build-configuration) for the details.)
+
 Dynamic import sites (2)
 ------------------------
   app.py:41:12         importlib.import_module
@@ -131,14 +134,47 @@ you want to trace once and check the result from a different step.
 ### `hookfix fix` — generate build configuration
 
 ```console
-hookfix fix trace.json --module app            # -> hook-app.py
-hookfix fix trace.json --module app -o out/    # -> out/hook-app.py
-hookfix fix trace.json --spec                  # -> hiddenimports = [...] snippet
+hookfix fix trace.json                        # -> hook-<package>.py on stdout
+hookfix fix trace.json -o hooks/              # -> hooks/hook-<package>.py
+hookfix fix trace.json --module reporters     # -> hook-reporters.py (explicit name)
+hookfix fix trace.json --spec                 # -> hiddenimports = [...] snippet
 ```
 
-`--module app` writes a PyInstaller hook file, the reusable form of
-`--hidden-import`. `--spec` prints just the `hiddenimports = [...]` list to drop
-into an existing `.spec` file.
+`--spec` prints just the `hiddenimports = [...]` list to drop into an existing
+`.spec` file, or to pass as `--hidden-import` flags. It always works.
+
+The hook file is the reusable form of `--hidden-import`, but it comes with a
+constraint worth understanding, because it is the difference between a build
+that works and one that fails silently:
+
+> PyInstaller reads `hook-NAME.py` only while it is processing a module called
+> `NAME`. A hook named after the entry script is never read — PyInstaller knows
+> the entry script as `__main__`, not by its file name.
+
+So a hook can only carry imports for a module PyInstaller already imports. The
+hidden imports are submodules (`reporters.json_reporter`), so `hookfix` keys the
+hook to the top-level package that owns them (`reporters`). That works when your
+program imports the package: PyInstaller processes `reporters`, reads
+`hook-reporters.py`, and picks up the submodule.
+
+It cannot work when *nothing* imports the package — which is precisely why the
+submodule was invisible in the first place. In that case `hookfix` writes no
+hook file and tells you to use `--hidden-import` instead, because a hook it
+wrote would be dead code:
+
+```console
+$ hookfix fix trace.json
+no hook file written: none of the hidden imports are modules PyInstaller
+processes, so a hook would never fire.
+
+1 module(s) cannot be covered by a hook (nothing imports them, so PyInstaller
+never processes them). Pass these instead:
+
+  pyinstaller --hidden-import=reporters.json_reporter ...
+```
+
+`--module NAME` overrides the name. It refuses a name that matches the entry
+script, since that hook would never be read.
 
 ## What it does and does not do
 
@@ -151,6 +187,10 @@ ones your smoke tests use. The output tells you which call sites are dynamic, so
 you can see what you might have missed. Treat the generated hook file as a
 starting point to review, not as a finished artefact — the header says as much.
 
+Imports that nothing could resolve are listed separately, under *Unresolved
+imports*. They are not build settings: there is no file to bundle, so the fix is
+to install the module (or accept that it is built in and always available).
+
 It also cannot tell you about data files, native libraries, or metadata that a
 freezer might drop. It is specifically about imports.
 
@@ -158,8 +198,10 @@ freezer might drop. It is specifically about imports.
 
 1. **Trace.** The CLI spawns a child process (`python -m hookfix._bootstrap`)
    that installs a recording meta path finder and then runs your script with
-   `runpy`, mimicking a plain `python script.py` invocation. Every resolved
-   module is logged as `name<TAB>origin`.
+   `runpy`, mimicking a plain `python script.py` invocation — or
+   `python -m package`, when the entry point is a package's `__main__.py`.
+   Every resolved module is logged as `name<TAB>origin`, and a module that
+   resolves without a file (a namespace package) logs its search location.
 
 2. **Scan.** `hookfix` walks the source tree with `ast`, collects every
    `import` statement, and records the location of every dynamic import call
@@ -170,7 +212,8 @@ freezer might drop. It is specifically about imports.
 
 3. **Diff.** The runtime modules minus the reachable ones are the hidden
    imports. Standard-library modules are split out (a freezer bundles those
-   anyway) and import-machinery internals are filtered as noise.
+   anyway), import-machinery internals are filtered as noise, and names that
+   resolved to no file are reported as unresolved rather than hidden.
 
 4. **Report.** The remainder is printed, or rendered as a hook file or spec
    snippet.

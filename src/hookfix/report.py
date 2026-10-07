@@ -10,6 +10,28 @@ def _plural(count: int, singular: str, plural: str | None = None) -> str:
     return f"{count} {word}"
 
 
+def _grouped(names: list[str]) -> list[str]:
+    """Group names by top-level package, e.g. ``yaml.*`` for 17 yaml modules.
+
+    A hidden third-party package arrives as a long list of submodules, which
+    buries the packages that only contributed one or two. Showing the package
+    once, with its children indented, keeps the shape of the list readable.
+    """
+    groups: dict[str, list[str]] = {}
+    for name in names:
+        groups.setdefault(name.split(".")[0], []).append(name)
+    lines: list[str] = []
+    for top in sorted(groups):
+        children = groups[top]
+        if len(children) == 1:
+            lines.append(f"  {children[0]}")
+        else:
+            lines.append(f"  {top}.*  ({len(children)} modules)")
+            for child in children:
+                lines.append(f"      {child}")
+    return lines
+
+
 def format_report(
     *,
     trace: TraceResult,
@@ -43,20 +65,52 @@ def format_report(
     else:
         lines.append(f"Hidden imports ({len(result.missing)})")
         lines.append("-" * (16 + len(str(len(result.missing)))))
-        for name in result.missing:
-            lines.append(f"  {name}")
+        lines.extend(_grouped(result.missing))
         lines.append("")
         lines.append(
             "These modules were imported at runtime but are invisible to a "
             "static scan. Add them to your build:"
         )
         lines.append("")
-        for name in result.missing:
-            lines.append(f"  pyinstaller --hidden-import={name} ...")
+        # A module with children is redundant in the flag list: --hidden-import
+        # on the parent pulls the whole package in, so list only the leaves.
+        tops = {name.split(".")[0] for name in result.missing}
+        leaves = [
+            name
+            for name in result.missing
+            if not any(other != name and other.startswith(name + ".") for other in result.missing)
+        ]
+        flags = "".join(f" --hidden-import={name}" for name in leaves)
+        if len(flags) <= 100:
+            lines.append(f"  pyinstaller{flags} ...")
+        else:
+            lines.append("  pyinstaller ...")
+            for name in leaves:
+                lines.append(f"      --hidden-import={name}")
+        if tops - {name.split(".")[0] for name in leaves}:
+            lines.append("")
+            lines.append(
+                "A package listed above is covered by its own modules; the "
+                "freezer pulls the package in with them."
+            )
         lines.append("")
         lines.append("Or generate a hook file for all of them at once:")
         lines.append("")
         lines.append("  hookfix fix")
+
+    if result.unresolved:
+        lines.append("")
+        lines.append(f"Unresolved imports ({len(result.unresolved)})")
+        lines.append("-" * (22 + len(str(len(result.unresolved)))))
+        for name in result.unresolved:
+            lines.append(f"  {name}")
+        lines.append("")
+        lines.append(
+            "The program tried to import these but nothing could resolve them, "
+            "so there is no file to bundle. Either they are missing from this "
+            "environment (install them), or they are built in and always "
+            "available. Not a build setting."
+        )
 
     if result.stdlib_only:
         lines.append("")

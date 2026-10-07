@@ -27,7 +27,7 @@ from .errors import HookfixError
 from .model import StaticResult, TraceResult
 from .report import format_report
 from .scanner import scan
-from .spec_writer import render_hook_file, render_spec_patch
+from .spec_writer import hook_targets, render_hook_file, render_spec_patch
 from .tracer import parse_audit_log
 
 
@@ -122,7 +122,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--module",
         default=None,
         metavar="NAME",
-        help="name the generated hook file 'hook-NAME.py'",
+        help=(
+            "name the generated hook file 'hook-NAME.py'. NAME must be a module "
+            "PyInstaller processes; naming it after the entry script produces a "
+            "hook that is never read (default: the top-level package of each "
+            "hidden import)"
+        ),
     )
     fix.add_argument(
         "--spec",
@@ -195,10 +200,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
     else:
         print(format_report(trace=trace, static=static, result=result, script=str(script)))
 
-    # A non-zero exit from the traced program is reported, but the diff itself
-    # is still useful, so we only propagate the traced status when there is
-    # nothing to report.
-    if trace.returncode != 0 and not result.missing:
+    # A trace of a program that crashed is incomplete by construction: the code
+    # that never ran is invisible, so any advice drawn from it is partial. Say
+    # so on stderr and exit non-zero rather than report a clean bill of health.
+    if trace.returncode != 0:
+        print(
+            f"warning: the traced program exited with status {trace.returncode}; "
+            "the report reflects only the part that ran and is likely incomplete",
+            file=sys.stderr,
+        )
         return trace.returncode
     return 0
 
@@ -245,15 +255,88 @@ def _cmd_fix(args: argparse.Namespace) -> int:
 
     if args.spec:
         rendered = render_spec_patch(result.missing)
-    else:
-        rendered = render_hook_file(result.missing, module_name=args.module)
+        if args.output:
+            Path(args.output).write_text(rendered, encoding="utf-8")
+            print(f"wrote {args.output} ({len(result.missing)} hidden imports)")
+        else:
+            print(rendered, end="")
+        return 0
 
-    if args.output:
-        Path(args.output).write_text(rendered, encoding="utf-8")
-        print(f"wrote {args.output} ({len(result.missing)} hidden imports)")
+    # A hook only fires for a module PyInstaller processes. A module that is
+    # hidden *because nothing imports it* is by definition not processed, so no
+    # hook can cover it -- a hook file for it would be dead. Those modules go to
+    # ``--hidden-import`` instead, which is unconditional.
+    reachable = set(static.reachable)
+    hookable = [name for name in result.missing if name.split(".")[0] in reachable]
+    unconditional = [name for name in result.missing if name.split(".")[0] not in reachable]
+
+    if args.module is not None:
+        # Explicit request. Honour it faithfully: ``--module reporters`` means
+        # every hidden import that belongs to ``reporters``. But refuse a hook
+        # that cannot fire -- naming it after the entry script is the classic
+        # mistake. ``_scan_for_trace`` already rejected a trace with no entry.
+        entry_name = Path(trace.entry or "").stem
+        if Path(args.module).stem == entry_name:
+            raise HookfixError(
+                f"a hook named after the entry script ({args.module}) is never "
+                "read: PyInstaller knows the entry script as __main__. Name the "
+                "hook after a module your program imports, or drop --module to "
+                "let hookfix choose."
+            )
+        top = args.module.split(".")[0]
+        for_this = [name for name in result.missing if name.split(".")[0] == top]
+        if not for_this:
+            for_this = list(result.missing)
+        targets = {args.module: for_this}
     else:
-        print(rendered, end="")
+        targets = {
+            target: [name for name in hookable if name.split(".")[0] == target]
+            for target in hook_targets(hookable)
+        }
+
+    if not targets:
+        print(
+            "no hook file written: none of the hidden imports are modules "
+            "PyInstaller processes, so a hook would never fire."
+        )
+        _print_hidden_import_advice(unconditional)
+        return 0
+
+    if args.output and Path(args.output).is_dir():
+        for target, names in targets.items():
+            path = Path(args.output) / f"hook-{target}.py"
+            path.write_text(render_hook_file(names, module_name=target), encoding="utf-8")
+            print(f"wrote {path} ({len(names)} hidden imports)")
+    elif args.output:
+        target, names = next(iter(targets.items()))
+        Path(args.output).write_text(
+            render_hook_file(names, module_name=target), encoding="utf-8"
+        )
+        print(f"wrote {args.output} ({len(names)} hidden imports)")
+    elif len(targets) == 1:
+        target, names = next(iter(targets.items()))
+        print(render_hook_file(names, module_name=target), end="")
+    else:
+        # Several packages; a hook file is one file, so print them separated.
+        for i, (target, names) in enumerate(targets.items()):
+            if i:
+                print()
+            print(render_hook_file(names, module_name=target), end="")
+
+    if unconditional:
+        _print_hidden_import_advice(unconditional)
     return 0
+
+
+def _print_hidden_import_advice(modules: Sequence[str]) -> None:
+    if not modules:
+        return
+    flags = " ".join(f"--hidden-import={name}" for name in modules)
+    print(
+        f"\n{len(modules)} module(s) cannot be covered by a hook (nothing imports "
+        f"them, so PyInstaller never processes them). Pass these instead:\n\n"
+        f"  pyinstaller {flags} ...\n"
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

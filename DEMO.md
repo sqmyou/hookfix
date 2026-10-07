@@ -39,11 +39,12 @@ $ pyinstaller --onedir --name demo_broken --paths . main.py
 $ ./dist/demo_broken/demo_broken json
 Traceback (most recent call last):
   ...
-ModuleNotFoundError: No module named 'reporters'
+ModuleNotFoundError: No module named 'reporters.json_reporter'
 [PYI-2105:ERROR] Failed to execute script 'main' due to unhandled exception!
 ```
 
-The classic symptom, and the reason this tool exists.
+The classic symptom, and the reason this tool exists. The `reporters` package
+itself made it into the bundle — only the reporter chosen at runtime is missing.
 
 ## 3. hookfix finds the hidden import
 
@@ -56,7 +57,7 @@ hookfix report
 script        /tmp/hookfix_demo/main.py
 python        3.13.15
 exit status   0
-scanned       4 files, 4 static imports
+scanned       5 files, 6 static imports
 observed      18 modules imported at runtime
 
 Hidden imports (1)
@@ -68,9 +69,13 @@ Add them to your build:
 
   pyinstaller --hidden-import=reporters.json_reporter ...
 
+Or generate a hook file for all of them at once:
+
+  hookfix fix
+
 Dynamic import sites (1)
 ------------------------
-  main.py:25:12  importlib.import_module
+  main.py:31:11  importlib.import_module
 
 These call sites are why the imports above are invisible to static analysis.
 ```
@@ -84,24 +89,39 @@ hiddenimports = [
 ]
 ```
 
-or a ready-to-use hook file:
+or a ready-to-use hook file, keyed to the package PyInstaller processes:
 
 ```console
-$ hookfix fix trace.json --path . --module main -o hook-main.py
-wrote hook-main.py (1 hidden imports)
+$ hookfix fix trace.json --path . -o hooks/
+wrote hooks/hook-reporters.py (1 hidden imports)
 ```
 
 ## 5. The frozen binary works
 
+Freeze with only the generated hook applied — no `--hidden-import`:
+
 ```console
 $ pyinstaller --onedir --name demo_proof --paths . \
-      --hidden-import=reporters.json_reporter main.py
+      --additional-hooks-dir=hooks main.py
 $ ./dist/demo_proof/demo_proof json
 {
   "status": "ok",
   "items": 3
 }
 ```
+
+`--additional-hooks-dir=hooks` is the whole difference. Without it the binary
+dies with `ModuleNotFoundError`; with it, PyInstaller processes `reporters`,
+reads `hook-reporters.py`, and pulls in `reporters.json_reporter`.
+
+Two things make this work, and both matter. The hook is named after
+`reporters`, a module PyInstaller processes — a hook named `hook-main.py` would
+never be read, because PyInstaller knows the entry script as `__main__`. And the
+app imports `reporters` itself, so there is a module for the hook to attach to.
+
+If your app never imports the package, no hook can help: pass the module with
+`--hidden-import` instead, which is unconditional. `hookfix fix` says so and
+prints the exact flags when that happens.
 
 ## What the demo also shows: the honest boundary
 

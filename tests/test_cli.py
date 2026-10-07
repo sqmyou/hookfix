@@ -6,7 +6,18 @@ import json
 
 from hookfix.cli import main
 
-from .conftest import DYNAMIC_APP, DYNAMIC_APP_ENTRY, NESTED_APP, NESTED_APP_ENTRY
+from .conftest import (
+    DYNAMIC_APP,
+    DYNAMIC_APP_ENTRY,
+    HOOKED_APP,
+    HOOKED_APP_ENTRY,
+    NESTED_APP,
+    NESTED_APP_ENTRY,
+    PKG_APP,
+    PKG_APP_ENTRY,
+    TWO_PKGS_APP,
+    TWO_PKGS_APP_ENTRY,
+)
 
 
 def test_run_reports_hidden_import(capsys):
@@ -83,42 +94,93 @@ def test_fix_emits_hook_file(capsys, tmp_path):
     main(
         [
             "run",
-            str(DYNAMIC_APP_ENTRY),
+            str(HOOKED_APP_ENTRY),
             "--path",
-            str(DYNAMIC_APP),
+            str(HOOKED_APP),
             "--quiet",
             "--trace-out",
             str(trace_file),
         ]
     )
     capsys.readouterr()
-    code = main(["fix", str(trace_file), "--path", str(DYNAMIC_APP), "--module", "app"])
+    code = main(["fix", str(trace_file), "--path", str(HOOKED_APP)])
     out = capsys.readouterr().out
     assert code == 0
     assert "hiddenimports = [" in out
-    assert "'plugins.report'," in out
+    assert "'dynpkg.helper'," in out
+    # The hook is keyed to the package PyInstaller processes, not the entry
+    # script -- a hook named after the script is never read.
+    assert "# hook-dynpkg.py" in out
 
 
-def test_fix_writes_to_file(capsys, tmp_path):
+def test_fix_refuses_hook_named_after_the_entry_script(capsys, tmp_path):
     trace_file = tmp_path / "trace.json"
     main(
         [
             "run",
-            str(DYNAMIC_APP_ENTRY),
+            str(HOOKED_APP_ENTRY),
             "--path",
-            str(DYNAMIC_APP),
+            str(HOOKED_APP),
             "--quiet",
             "--trace-out",
             str(trace_file),
         ]
     )
     capsys.readouterr()
-    output = tmp_path / "hook-app.py"
-    code = main(
-        ["fix", str(trace_file), "--path", str(DYNAMIC_APP), "-o", str(output), "--module", "app"]
+    code = main(["fix", str(trace_file), "--path", str(HOOKED_APP), "--module", "app"])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "never" in err and "__main__" in err
+
+
+def test_fix_writes_to_directory(capsys, tmp_path):
+    trace_file = tmp_path / "trace.json"
+    main(
+        [
+            "run",
+            str(HOOKED_APP_ENTRY),
+            "--path",
+            str(HOOKED_APP),
+            "--quiet",
+            "--trace-out",
+            str(trace_file),
+        ]
     )
+    capsys.readouterr()
+    out_dir = tmp_path / "hooks"
+    out_dir.mkdir()
+    code = main(["fix", str(trace_file), "--path", str(HOOKED_APP), "-o", str(out_dir)])
     assert code == 0
-    assert "'plugins.report'," in output.read_text()
+    written = out_dir / "hook-dynpkg.py"
+    assert written.exists()
+    assert "'dynpkg.helper'," in written.read_text()
+
+
+def test_fix_writes_one_hook_per_package(tmp_path, capsys):
+    """Two hidden packages get two hooks, each scoped to its own modules."""
+    trace_file = tmp_path / "trace.json"
+    main(
+        [
+            "run",
+            str(TWO_PKGS_APP_ENTRY),
+            "--path",
+            str(TWO_PKGS_APP),
+            "--quiet",
+            "--trace-out",
+            str(trace_file),
+        ]
+    )
+    capsys.readouterr()
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    code = main(["fix", str(trace_file), "--path", str(TWO_PKGS_APP), "-o", str(hooks)])
+    capsys.readouterr()
+    assert code == 0
+    alpha = (hooks / "hook-alpha.py").read_text()
+    beta = (hooks / "hook-beta.py").read_text()
+    # Each hook carries only its own package -- not the union of both.
+    assert "'alpha.one'," in alpha and "beta" not in alpha
+    assert "'beta.two'," in beta and "alpha" not in beta
 
 
 def test_diff_from_saved_trace(capsys, tmp_path):
@@ -178,10 +240,13 @@ def test_fix_reports_module_hidden_behind_a_dynamic_package(capsys, tmp_path):
         ]
     )
     capsys.readouterr()
-    code = main(["fix", str(trace_file), "--path", str(NESTED_APP), "--module", "app"])
+    code = main(["fix", str(trace_file), "--path", str(NESTED_APP)])
     out = capsys.readouterr().out
     assert code == 0
-    assert "'dynpkg.helper'," in out
+    # ``dynpkg`` is never imported statically, so PyInstaller never processes
+    # it and no hook keyed to it can fire. The module goes to --hidden-import.
+    assert "--hidden-import=dynpkg.helper" in out
+    assert "no hook file written" in out
 
 
 def test_diff_rejects_schema_1_trace(capsys, tmp_path):
@@ -193,3 +258,25 @@ def test_diff_rejects_schema_1_trace(capsys, tmp_path):
     err = capsys.readouterr().err
     assert code == 2
     assert "no entry point recorded" in err
+
+
+def test_run_reports_submodule_of_the_entry_package(capsys):
+    """An entry point inside its own package must not hide that package's modules.
+
+    Regression from 0.1.1: a reachable parent package was treated as covering
+    its submodules, so ``mypkg.worker`` was never reported and the frozen app
+    died with ``ModuleNotFoundError: mypkg``.
+    """
+    code = main(
+        [
+            "run",
+            str(PKG_APP_ENTRY),
+            "--path",
+            str(PKG_APP),
+            "--quiet",
+            "--json",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["missing"] == ["mypkg.worker"]

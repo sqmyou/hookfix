@@ -11,6 +11,6 @@ a freezer can reach from your entry point. The difference is exactly the set of
 modules your build is missing.
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 __all__ = ["__version__"]

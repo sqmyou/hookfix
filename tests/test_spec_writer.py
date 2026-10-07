@@ -2,26 +2,34 @@
 
 from __future__ import annotations
 
-from hookfix.spec_writer import render_hook_file, render_spec_patch
+from hookfix.spec_writer import hook_targets, render_hook_file, render_spec_patch
+
+
+def test_hook_targets_uses_top_level_package():
+    # A hook must be keyed to a module PyInstaller processes. The hidden imports
+    # are submodules, so the key is their top-level package.
+    assert hook_targets(["reporters.json_reporter"]) == ["reporters"]
+    assert hook_targets(["plugins.report", "plugins.load"]) == ["plugins"]
+    assert hook_targets(["yaml"]) == ["yaml"]
+    assert hook_targets([]) == []
 
 
 def test_render_hook_file_lists_modules():
-    text = render_hook_file(["plugins", "requests"], module_name="app")
+    text = render_hook_file(["plugins.report"], module_name="plugins")
     assert "hiddenimports = [" in text
-    assert "'plugins'," in text
-    assert "'requests'," in text
-    assert "hook-app.py" in text
+    assert "'plugins.report'," in text
+    assert "hook-plugins.py" in text
 
 
 def test_render_hook_file_is_valid_python():
-    text = render_hook_file(["plugins"])
+    text = render_hook_file(["plugins"], module_name="plugins")
     namespace: dict = {}
     exec(compile(text, "<hook>", "exec"), namespace)  # noqa: S102
     assert namespace["hiddenimports"] == ["plugins"]
 
 
 def test_render_hook_file_handles_empty_list():
-    text = render_hook_file([])
+    text = render_hook_file([], module_name="plugins")
     namespace: dict = {}
     exec(compile(text, "<hook>", "exec"), namespace)  # noqa: S102
     assert namespace["hiddenimports"] == []
