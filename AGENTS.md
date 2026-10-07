@@ -67,6 +67,24 @@ Linux (3.10-3.13) plus macOS and Windows (3.12).
    fixed in 0.1.1 — hookfix's own advice produced a binary that crashed. `diff`
    raises rather than fall back to `imports`.
 
+6. **A hook file only fires for a module PyInstaller processes.** PyInstaller
+   reads `hook-NAME.py` while processing a module called `NAME`. The entry
+   script is never imported as a module — PyInstaller knows it as `__main__` —
+   so a hook named after the script file is silently dead. Key hooks to the
+   top-level package that owns the hidden imports (`hook-reporters.py`). If
+   nothing imports that package, no hook can cover its submodules: emit
+   `--hidden-import` instead. `hook_targets()` and `_cmd_fix` enforce this.
+
+7. **A name with no origin is not a hidden import.** The tracer records an
+   import it attempted but could not resolve with an empty origin. There is no
+   file to bundle, so `--hidden-import` cannot help; `diff` reports these under
+   `unresolved`. Namespace packages resolve without a file, so the tracer logs
+   their search location instead of leaving the origin empty.
+
+8. **Keep PyInstaller in the dev extras.** The freeze integration test is
+   skipped without it, and a skipped test is how the dead hook file shipped in
+   the first place. CI installs `.[dev]` and must actually run the freeze.
+
 ## Releasing
 
 `main` is the release branch. To cut a release:
